@@ -19,14 +19,14 @@ pip install pytest pytest-cov black flake8
 if ! command -v terraform &> /dev/null; then
     echo "Warning: Terraform is not installed"
 else
-    echo "Terraform version: $(terraform version -json | jq -r '.terraform_version')"
+    echo "Terraform version: $(terraform version | head -n1)"
 fi
 
 # Check Azure CLI installation
 if ! command -v az &> /dev/null; then
     echo "Warning: Azure CLI is not installed"
 else
-    echo "Azure CLI version: $(az version -o json | jq -r '.\"azure-cli\"')"
+    echo "Azure CLI version: $(az version -o tsv | head -n1 | cut -f2)"
 fi
 
 echo "Development environment setup complete!"
