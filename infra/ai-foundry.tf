@@ -13,7 +13,7 @@ resource "azurerm_application_insights" "main" {
 
 # Storage Account for AI Foundry
 resource "azurerm_storage_account" "ai_foundry" {
-  name                     = replace(var.ai_foundry_name, "-", "")
+  name                     = lower(substr(replace(replace(var.ai_foundry_name, "-", ""), "_", ""), 0, 24))
   resource_group_name      = azurerm_resource_group.main.name
   location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
