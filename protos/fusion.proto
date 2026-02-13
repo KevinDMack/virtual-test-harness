@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package virtualtestharness.fusion;
+
+import "sensor.proto";
+
+option go_package = "github.com/KevinDMack/virtual-test-harness/protos/fusion";
+
+// FusedData represents data from sensor fusion
+message FusedData {
+  int64 timestamp = 1;
+  repeated virtualtestharness.sensor.SensorData source_data = 2;
+  bytes fused_result = 3;
+  float confidence = 4;
+  map<string, string> metadata = 5;
+}
+
+// FusionRequest for requesting fused data
+message FusionRequest {
+  repeated string sensor_ids = 1;
+  int64 start_timestamp = 2;
+  int64 end_timestamp = 3;
+}
+
+// FusionResponse containing fused data
+message FusionResponse {
+  repeated FusedData data = 1;
+  bool has_more = 2;
+}
+
+// FusionService for managing sensor fusion
+service FusionService {
+  rpc GetFusedData(FusionRequest) returns (FusionResponse);
+  rpc StreamFusedData(FusionRequest) returns (stream FusedData);
+}

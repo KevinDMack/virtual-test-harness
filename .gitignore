@@ -1,0 +1,65 @@
+# Terraform state files
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+**/.terraform/
+**/.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Helm
+helm/*.tgz
+helm/charts/
+
+# Docker
+*.log
+
+# Kubernetes
+*.kubeconfig
+
+# Temporary files
+tmp/
+*.tmp
+.cache/
+
+# Generated proto files
+**/*_pb2.py
+**/*_pb2_grpc.py
+**/*.pb.go
+**/*_grpc.pb.go
+
+# Azure
+.azure/
+
+# Outputs
+outputs.json
