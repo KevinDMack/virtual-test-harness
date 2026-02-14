@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package virtualtestharness.sensor;
+
+option go_package = "github.com/KevinDMack/virtual-test-harness/protos/sensor";
+
+// SensorData represents data from a sensor
+message SensorData {
+  string sensor_id = 1;
+  int64 timestamp = 2;
+  SensorType type = 3;
+  bytes data = 4;
+  map<string, string> metadata = 5;
+}
+
+// SensorType defines different types of sensors
+enum SensorType {
+  UNKNOWN = 0;
+  CAMERA = 1;
+  LIDAR = 2;
+  RADAR = 3;
+  GPS = 4;
+  IMU = 5;
+  ULTRASONIC = 6;
+}
+
+// SensorRequest for requesting sensor data
+message SensorRequest {
+  string sensor_id = 1;
+  int64 start_timestamp = 2;
+  int64 end_timestamp = 3;
+}
+
+// SensorResponse containing sensor data
+message SensorResponse {
+  repeated SensorData data = 1;
+  bool has_more = 2;
+}
+
+// SensorService for managing sensor data
+service SensorService {
+  rpc GetSensorData(SensorRequest) returns (SensorResponse);
+  rpc StreamSensorData(SensorRequest) returns (stream SensorData);
+}
