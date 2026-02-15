@@ -1,0 +1,6 @@
+# This file designates code owners for the repository.
+# GitHub will request review from the specified owners for pull requests.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# All files in the repository
+*  @KevinDMack
