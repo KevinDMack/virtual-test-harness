@@ -1,0 +1,26 @@
+{{- if not .Values.useExternalVolumes }}
+---
+# ConfigMap: sensor config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sensor-simulator.fullname" . }}-config
+  labels:
+    {{- include "sensor-simulator.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {{ .Values.config | toJson }}
+---
+# ConfigMap: inbox messages
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sensor-simulator.fullname" . }}-inbox
+  labels:
+    {{- include "sensor-simulator.labels" . | nindent 4 }}
+data:
+  {{- range $filename, $content := .Values.inbox }}
+  {{ $filename }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}

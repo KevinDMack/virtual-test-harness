@@ -1,0 +1,88 @@
+# Default values for sensor-simulator.
+# Override these per-instance when installing multiple releases.
+
+# -- Number of simulator pod replicas.
+replicaCount: 1
+
+image:
+  # -- Full image reference (registry/name:tag).
+  repository: myregistry.azurecr.io/sensor-simulator
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Overrides the chart appVersion when set.
+  tag: "latest"
+
+# -- Names of Kubernetes image pull secrets.
+imagePullSecrets:
+  - name: acr-pull-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Whether to create a service account.
+  create: true
+  # -- Annotations to add to the service account (e.g. for Workload Identity).
+  annotations: {}
+  # -- Name of the service account. Auto-generated if empty.
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534  # nobody
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "64Mi"
+  limits:
+    cpu: "250m"
+    memory: "128Mi"
+
+# -- Sensor simulator configuration.
+# These values are rendered into a ConfigMap and mounted at /app/config/config.json.
+config:
+  sensor_name: "sensor-alpha-01"
+  message_interval: 5
+  message_topic: "sensor-data"
+  health_interval: 30
+  health_topic: "sensor-health"
+  run_continuous: true
+  service_bus_namespace: "your-namespace.servicebus.windows.net"
+
+# -- Inbox messages.
+# Keys map to filenames; values are JSON arrays or objects (as YAML).
+# Each key will be written as a separate JSON file inside /app/inbox/.
+inbox:
+  messages.json: |
+    [
+      {
+        "reading_type": "temperature",
+        "value": 72.4,
+        "unit": "fahrenheit",
+        "location": "sector-7G"
+      },
+      {
+        "reading_type": "humidity",
+        "value": 58.1,
+        "unit": "percent",
+        "location": "sector-7G"
+      }
+    ]
+
+# -- If true, mount config and inbox from external PersistentVolumeClaims
+#    instead of ConfigMaps.  Set pvcNames accordingly.
+useExternalVolumes: false
+pvcNames:
+  config: ""
+  inbox: ""
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

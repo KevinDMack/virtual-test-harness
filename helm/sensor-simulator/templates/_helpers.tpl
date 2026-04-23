@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "virtual-test-harness.name" -}}
+{{- define "sensor-simulator.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "virtual-test-harness.fullname" -}}
+{{- define "sensor-simulator.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -22,18 +22,18 @@ Create a default fully qualified app name.
 {{- end }}
 
 {{/*
-Create chart name and version as used by the chart label.
+Create chart label.
 */}}
-{{- define "virtual-test-harness.chart" -}}
+{{- define "sensor-simulator.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-Common labels
+Common labels.
 */}}
-{{- define "virtual-test-harness.labels" -}}
-helm.sh/chart: {{ include "virtual-test-harness.chart" . }}
-{{ include "virtual-test-harness.selectorLabels" . }}
+{{- define "sensor-simulator.labels" -}}
+helm.sh/chart: {{ include "sensor-simulator.chart" . }}
+{{ include "sensor-simulator.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -41,19 +41,19 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-Selector labels
+Selector labels.
 */}}
-{{- define "virtual-test-harness.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "virtual-test-harness.name" . }}
+{{- define "sensor-simulator.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "sensor-simulator.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Create the name of the service account to use
+Service account name.
 */}}
-{{- define "virtual-test-harness.serviceAccountName" -}}
+{{- define "sensor-simulator.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "virtual-test-harness.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "sensor-simulator.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

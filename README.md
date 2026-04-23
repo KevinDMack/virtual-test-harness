@@ -1,162 +1,181 @@
-# Virtual Test Harness
+# sensor-simulator
 
-A microservice framework for leveraging AI to simulate sensor output and sensor fusion.
+A self-contained synthetic sensor data simulator that runs on **k3s** (or any Kubernetes cluster) and publishes sensor readings and health messages to **Azure Service Bus** using Managed Identity.
+
+---
 
 ## Overview
 
-The Virtual Test Harness is a cloud-native application designed to simulate sensor data and sensor fusion using AI capabilities. It is built on a microservices architecture and deployed on Azure Kubernetes Service (AKS) with AI Foundry integration.
-
-## Project Structure
-
 ```
-.
-├── infra/              # Terraform infrastructure as code for AKS and AI Foundry
-├── services/           # Microservices directory (each service in its own subdirectory)
-├── scripts/            # Bash scripts for deployment and development tasks
-├── protos/             # Protocol buffer definitions for inter-service communication
-├── helm/               # Helm chart for Kubernetes deployment
-├── .devcontainer/      # Development container configuration
-└── README.md           # This file
+apps/sensor-simulator/
+├── app.py                   # Main application
+├── Dockerfile               # Container image definition
+├── build-image.sh           # Script to build & push to ACR
+├── requirements.txt         # Python dependencies
+├── config/
+│   └── config.json          # Sensor configuration
+├── inbox/
+│   └── messages.json        # Synthetic sensor payloads
+└── helm/
+    └── sensor-simulator/    # Helm chart
+        ├── Chart.yaml
+        ├── values.yaml
+        └── templates/
+            ├── _helpers.tpl
+            ├── configmap.yaml
+            ├── deployment.yaml
+            └── serviceaccount.yaml
 ```
 
-## Quick Start
+---
 
-### Prerequisites
+## Configuration (`config/config.json`)
 
-- Docker Desktop with Kubernetes enabled, or access to an AKS cluster
-- Azure CLI
-- Terraform >= 1.0
-- Helm >= 3.0
-- Python >= 3.11
+| Field | Type | Description |
+|---|---|---|
+| `sensor_name` | string | Name stamped on every outbound message |
+| `message_interval` | number | Seconds between sensor messages |
+| `message_topic` | string | Azure Service Bus topic for sensor data |
+| `health_interval` | number | Seconds between health messages |
+| `health_topic` | string | Azure Service Bus topic for health messages |
+| `run_continuous` | bool | Restart the inbox list when exhausted |
+| `service_bus_namespace` | string | FQDN of the Service Bus namespace (e.g. `myns.servicebus.windows.net`) |
 
-### Development Setup
+```json
+{
+  "sensor_name": "sensor-alpha-01",
+  "message_interval": 5,
+  "message_topic": "sensor-data",
+  "health_interval": 30,
+  "health_topic": "sensor-health",
+  "run_continuous": true,
+  "service_bus_namespace": "your-namespace.servicebus.windows.net"
+}
+```
 
-1. **Using Dev Container (Recommended)**
-   
-   Open this repository in VS Code with the Dev Containers extension:
-   ```bash
-   code .
-   ```
-   VS Code will prompt you to reopen in the container, which includes all necessary tools.
+Authentication to Azure Service Bus is done via **Managed Identity** (`DefaultAzureCredential`). No secrets are stored in the config file.
 
-2. **Manual Setup**
-   
-   Run the setup script:
-   ```bash
-   ./scripts/setup-dev.sh
-   ```
+---
 
-### Infrastructure Deployment
+## Inbox (`inbox/messages.json`)
 
-1. Configure Azure credentials:
-   ```bash
-   az login
-   ```
+A JSON array of raw sensor reading objects. On startup the application loads every `*.json` file from the inbox directory into memory and sends one reading per `message_interval`.
 
-2. Deploy infrastructure:
-   ```bash
-   ./scripts/deploy-infra.sh
-   ```
+If `run_continuous` is `true`, the list cycles indefinitely. Otherwise the process exits after all messages have been sent.
 
-3. Get AKS credentials:
-   ```bash
-   az aks get-credentials --resource-group rg-virtual-test-harness --name aks-virtual-test-harness
-   ```
+---
 
-### Application Deployment
+## Sensor Message Format
 
-1. Build services:
-   ```bash
-   ./scripts/build-services.sh
-   ```
+```json
+{
+  "sensor_name": "sensor-alpha-01",
+  "date_time": "2024-01-15T10:30:00.123456+00:00",
+  "correlation_id": "a1b2c3d4-e5f6-...",
+  "content": { /* raw payload from inbox */ }
+}
+```
 
-2. Deploy with Helm:
-   ```bash
-   helm install virtual-test-harness ./helm
-   ```
+---
 
-## Components
+## Health Message Format
 
-### Infrastructure (`infra/`)
+```json
+{
+  "sensor_name": "sensor-alpha-01",
+  "date_time": "2024-01-15T10:30:00.123456+00:00",
+  "status": "green",
+  "last_error_message": ""
+}
+```
 
-Terraform configurations for:
-- Azure Kubernetes Service (AKS) cluster
-- AI Foundry (Azure Cognitive Services)
-- Application Insights for monitoring
-- Storage Account for AI data
+### Status Codes
 
-See [infra/README.md](infra/README.md) for details.
+| Status | Condition |
+|---|---|
+| `green` | No errors in the last 10 minutes |
+| `yellow` | 1–5 errors in the last 10 minutes (circuit half-open / degraded) |
+| `red` | 6 or more errors in the last 10 minutes (circuit open, publishing suspended) |
 
-### Services (`services/`)
+---
 
-Microservices implementing the core functionality. Each service should:
-- Use the protocol buffers defined in `protos/`
-- Include its own Dockerfile
-- Have comprehensive tests
+## Circuit Breaker
 
-See [services/README.md](services/README.md) for details.
+The application uses a sliding-window circuit breaker that monitors the last **10 minutes** of errors:
 
-### Protocol Buffers (`protos/`)
+| Errors in window | State | Behaviour |
+|---|---|---|
+| 0 | CLOSED | Normal operation |
+| 1–5 | HALF-OPEN | Still publishing, health status = yellow |
+| 6+ | OPEN | Sensor publishing suspended, health status = red |
 
-Defines the API contracts between services:
-- `sensor.proto`: Sensor data structures and service
-- `fusion.proto`: Sensor fusion data structures and service
+The breaker automatically recovers once all error timestamps fall outside the 10-minute window.
 
-See [protos/README.md](protos/README.md) for details.
+---
 
-### Helm Chart (`helm/`)
+## Build & Push to ACR
 
-Kubernetes deployment configuration including:
-- Deployments
-- Services
-- ConfigMaps and Secrets
-- Ingress rules
-
-See [helm/README.md](helm/README.md) for details.
-
-### Scripts (`scripts/`)
-
-Utility scripts for common tasks:
-- `deploy-infra.sh`: Deploy Azure infrastructure
-- `setup-dev.sh`: Setup development environment
-- `build-services.sh`: Build all microservices
-
-See [scripts/README.md](scripts/README.md) for details.
-
-## Development
-
-### Adding a New Microservice
-
-1. Create a new directory in `services/`:
-   ```bash
-   mkdir services/my-service
-   ```
-
-2. Add your service code, tests, and Dockerfile
-
-3. Update the Helm chart to include your service
-
-4. Update protocol buffers if needed
-
-### Testing
-
-Run tests for a specific service:
 ```bash
-cd services/my-service
-pytest
+# Authenticate to ACR
+az acr login --name <registry-name>
+
+# Build and push (tag defaults to "latest")
+./build-image.sh myregistry.azurecr.io
+
+# Build and push with a specific tag
+./build-image.sh myregistry.azurecr.io v1.0.0
 ```
 
-### Local Development
+---
 
-Use the dev container for a consistent development environment with all tools pre-installed.
+## Helm Deployment
 
-## Contributing
+### Single instance
 
-1. Create a feature branch
-2. Make your changes
-3. Run tests
-4. Submit a pull request
+```bash
+helm install sensor-alpha \
+  ./helm/sensor-simulator \
+  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+  --set config.sensor_name=sensor-alpha-01 \
+  --set config.service_bus_namespace=myns.servicebus.windows.net
+```
 
-## License
+### Multiple instances
 
-See [LICENSE](LICENSE) for details.
+```bash
+# Instance 1
+helm install sensor-alpha ./helm/sensor-simulator \
+  --set config.sensor_name=sensor-alpha-01 \
+  --set config.message_topic=sensor-data-alpha
+
+# Instance 2
+helm install sensor-beta ./helm/sensor-simulator \
+  --set config.sensor_name=sensor-beta-01 \
+  --set config.message_topic=sensor-data-beta
+```
+
+### Using externally mounted volumes (PVCs)
+
+```bash
+helm install sensor-alpha ./helm/sensor-simulator \
+  --set useExternalVolumes=true \
+  --set pvcNames.config=sensor-alpha-config-pvc \
+  --set pvcNames.inbox=sensor-alpha-inbox-pvc
+```
+
+### Workload Identity (recommended for production)
+
+```bash
+helm install sensor-alpha ./helm/sensor-simulator \
+  --set serviceAccount.annotations."azure\.workload\.identity/client-id"=<client-id>
+```
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `CONFIG_PATH` | `/app/config/config.json` | Path to the config file |
+| `INBOX_DIR` | `/app/inbox` | Path to the inbox directory |
+| `APP_BASE_DIR` | `/app` | Base directory (used when the above are unset) |
