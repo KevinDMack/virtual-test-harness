@@ -423,8 +423,11 @@ class TestSensorLoop:
         def capture_send(c, topic, payload, circuit_breaker):
             sent_contents.append(payload["content"])
 
+        def fake_build(name, content):
+            return {"sensor_name": name, "content": content, "date_time": "", "correlation_id": ""}
+
         with patch("app.send_to_topic", side_effect=capture_send):
-            with patch("app.build_sensor_message", side_effect=lambda name, content: {"sensor_name": name, "content": content, "date_time": "", "correlation_id": ""}):
+            with patch("app.build_sensor_message", side_effect=fake_build):
                 app.sensor_loop(client, self._BASE_CFG, payloads, cb, stop)
 
         assert sent_contents == payloads
