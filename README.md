@@ -1,6 +1,6 @@
 # sensor-simulator
 
-A self-contained synthetic sensor data simulator that runs on **k3s** (or any Kubernetes cluster) and publishes sensor readings and health messages to **Azure Service Bus** using Managed Identity.
+A self-contained synthetic sensor data simulator that runs on **AKS** (or any Kubernetes cluster) and publishes sensor readings and health messages to **Azure Service Bus** using Managed Identity.
 
 ---
 
@@ -20,15 +20,63 @@ virtual-test-harness/
 ├── tests/
 │   ├── conftest.py          # Pytest fixtures / Azure SDK stubs
 │   └── test_app.py          # Automated unit tests
-└── helm/
-    └── sensor-simulator/    # Helm chart
-        ├── Chart.yaml
-        ├── values.yaml
-        └── templates/
-            ├── _helpers.tpl
-            ├── configmap.yaml
-            ├── deployment.yaml
-            └── serviceaccount.yaml
+├── helm/
+│   └── sensor-simulator/    # Helm chart
+│       ├── Chart.yaml
+│       ├── values.yaml
+│       └── templates/
+│           ├── _helpers.tpl
+│           ├── configmap.yaml
+│           ├── deployment.yaml
+│           └── serviceaccount.yaml
+├── infra/                   # Terraform – Azure Government AKS infrastructure
+│   ├── providers.tf
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   ├── modules/
+│   │   ├── aks/             # AKS cluster (workload identity + KV CSI)
+│   │   ├── keyvault/        # Azure Key Vault (RBAC auth)
+│   │   ├── storage/         # Storage Account (key access disabled)
+│   │   └── acr/             # Container Registry (admin disabled)
+│   └── scripts/             # Wrapper scripts (init / plan / apply / destroy)
+└── docs/
+    └── infrastructure.md    # Full infrastructure documentation
+```
+
+---
+
+## Infrastructure (Azure Government)
+
+The `infra/` directory contains Terraform modules that deploy a full AKS
+testing environment to **Azure Government** (`usgovarizona`):
+
+- **AKS cluster** – with workload identity, OIDC issuer, and Key Vault CSI
+  Secret Store driver.
+- **Key Vault** – RBAC-based authorization; no legacy access policies.
+- **Storage Account** – SAS/key-based access disabled; Azure AD auth only.
+- **Container Registry** – admin account disabled; image pulls via
+  managed identity.
+
+All inter-service access uses **managed identity and Azure RBAC** – no
+secrets are stored in configuration files.
+
+See **[docs/infrastructure.md](docs/infrastructure.md)** for the complete
+setup guide, script reference, and variable/output reference.
+
+### Quick start
+
+```bash
+# Sign in to Azure Government
+az cloud set --name AzureUSGovernment && az login
+
+# Bootstrap state storage (one-time)
+bash infra/scripts/create-state-storage.sh
+
+# Init → Plan → Apply
+bash infra/scripts/init.sh
+bash infra/scripts/plan.sh
+bash infra/scripts/apply.sh
 ```
 
 ---

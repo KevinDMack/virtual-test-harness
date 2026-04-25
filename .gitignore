@@ -30,7 +30,9 @@ package-lock.json
 yarn.lock
 
 # IDEs
-.vscode/
+# Commit shared VS Code config (tasks.json), ignore user-specific files.
+.vscode/*
+!.vscode/tasks.json
 .idea/
 *.swp
 *.swo
