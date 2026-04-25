@@ -80,6 +80,52 @@
         "panel": "shared"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "K3s: Install",
+      "type": "shell",
+      "command": "curl -sfL https://get.k3s.io -o /tmp/install-k3s.sh && echo 'Review /tmp/install-k3s.sh before proceeding.' && read -rp 'Press Enter to run the installer or Ctrl+C to abort: ' && sh /tmp/install-k3s.sh",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Build Image",
+      "type": "shell",
+      "command": "docker build --platform linux/amd64 --tag sensor-simulator:dev .",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "K3s: Import Image",
+      "type": "shell",
+      "command": "docker save sensor-simulator:dev | sudo k3s ctr images import -",
+      "group": "none",
+      "dependsOn": "Docker: Build Image",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Requires passwordless sudo for 'k3s ctr'. Run: echo '$USER ALL=(ALL) NOPASSWD: /usr/local/bin/k3s' | sudo tee /etc/sudoers.d/k3s"
+    },
+    {
+      "label": "Helm: Deploy Chart",
+      "type": "shell",
+      "command": "helm upgrade --install sensor-simulator ./helm/sensor-simulator --set image.repository=sensor-simulator --set image.tag=dev --set image.pullPolicy=Never --set imagePullSecrets=[]",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
     }
   ]
 }
