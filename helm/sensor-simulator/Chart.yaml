@@ -1,0 +1,9 @@
+apiVersion: v2
+name: sensor-simulator
+description: >
+  Helm chart for the tactical-edge sensor simulator.  Deploys one or more
+  instances of the sensor simulator, each with its own config and inbox
+  directories mounted via ConfigMaps (or external volumes).
+type: application
+version: 0.1.0
+appVersion: "latest"

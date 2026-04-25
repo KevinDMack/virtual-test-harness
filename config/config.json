@@ -1,0 +1,9 @@
+{
+  "sensor_name": "sensor-alpha-01",
+  "message_interval": 5,
+  "message_topic": "sensor-data",
+  "health_interval": 30,
+  "health_topic": "sensor-health",
+  "run_continuous": true,
+  "service_bus_namespace": "your-namespace.servicebus.windows.net"
+}
