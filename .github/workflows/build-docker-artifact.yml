@@ -1,0 +1,52 @@
+name: Build Docker Image and Upload Artifact
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Upload Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker images and export as tarballs
+        run: |
+          mkdir -p /tmp/docker-images
+          built_any=false
+
+          for service_dir in services/*/; do
+            service_name=$(basename "$service_dir")
+            if [ -f "${service_dir}Dockerfile" ]; then
+              echo "Building image for service: $service_name"
+              image_tag="virtual-test-harness/${service_name}:${{ github.sha }}"
+              docker buildx build --load -t "$image_tag" "$service_dir"
+              docker save "$image_tag" -o "/tmp/docker-images/${service_name}.tar"
+              built_any=true
+              echo "Saved image: /tmp/docker-images/${service_name}.tar"
+            else
+              echo "No Dockerfile found for service: $service_name, skipping."
+            fi
+          done
+
+          if [ "$built_any" = false ]; then
+            echo "No Dockerfiles found in any service directory."
+            exit 1
+          fi
+
+      - name: Upload Docker image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images-${{ github.sha }}
+          path: /tmp/docker-images/*.tar
+          if-no-files-found: error
+          retention-days: 30
