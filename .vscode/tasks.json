@@ -1,0 +1,85 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Infra: Create State Storage",
+      "type": "shell",
+      "command": "bash infra/scripts/create-state-storage.sh",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Infra: Init",
+      "type": "shell",
+      "command": "bash infra/scripts/init.sh",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Infra: Validate",
+      "type": "shell",
+      "command": "bash infra/scripts/validate.sh",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Infra: Plan",
+      "type": "shell",
+      "command": "bash infra/scripts/plan.sh",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Infra: Apply",
+      "type": "shell",
+      "command": "bash infra/scripts/apply.sh",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Infra: Destroy",
+      "type": "shell",
+      "command": "bash infra/scripts/destroy.sh",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Tests: Run pytest",
+      "type": "shell",
+      "command": "python -m pytest tests/ -v",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
