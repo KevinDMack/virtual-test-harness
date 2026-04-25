@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run: app.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app.py",
+      "console": "integratedTerminal",
+      "env": {
+        "APP_BASE_DIR": "${workspaceFolder}",
+        "CONFIG_PATH": "${workspaceFolder}/config/config.json",
+        "INBOX_DIR": "${workspaceFolder}/inbox"
+      }
+    }
+  ]
+}
