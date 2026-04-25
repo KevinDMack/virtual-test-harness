@@ -7,15 +7,19 @@ A self-contained synthetic sensor data simulator that runs on **k3s** (or any Ku
 ## Overview
 
 ```
-apps/sensor-simulator/
+virtual-test-harness/
 ├── app.py                   # Main application
 ├── Dockerfile               # Container image definition
 ├── build-image.sh           # Script to build & push to ACR
-├── requirements.txt         # Python dependencies
+├── requirements.txt         # Python runtime dependencies
+├── requirements-dev.txt     # Python dev/test dependencies
 ├── config/
 │   └── config.json          # Sensor configuration
 ├── inbox/
 │   └── messages.json        # Synthetic sensor payloads
+├── tests/
+│   ├── conftest.py          # Pytest fixtures / Azure SDK stubs
+│   └── test_app.py          # Automated unit tests
 └── helm/
     └── sensor-simulator/    # Helm chart
         ├── Chart.yaml
@@ -169,6 +173,19 @@ helm install sensor-alpha ./helm/sensor-simulator \
 helm install sensor-alpha ./helm/sensor-simulator \
   --set serviceAccount.annotations."azure\.workload\.identity/client-id"=<client-id>
 ```
+
+---
+
+## Running Tests
+
+Install the development dependencies and run pytest:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests/ -v
+```
+
+Tests cover `CircuitBreaker`, config/inbox loading, message builders, Service Bus publishing, and the sensor and health publish loops.  All Azure SDK calls are stubbed so no real Azure resources are required.
 
 ---
 
