@@ -2,7 +2,6 @@
   "name": "Virtual Test Harness Development",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
   "features": {
-    "ghcr.io/devcontainers/features/azure-cli:1": {},
     "ghcr.io/devcontainers/features/terraform:1": {
       "version": "1.10.5"
     }
@@ -17,6 +16,6 @@
       ]
     }
   },
-  "postCreateCommand": "pip install --user pytest pytest-cov",
+  "postCreateCommand": "pip install --user pytest pytest-cov azure-cli",
   "remoteUser": "vscode"
 }
