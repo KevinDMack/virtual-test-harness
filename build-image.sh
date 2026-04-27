@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# build-image.sh – Build and push the sensor-simulator container image to an
+# build-image.sh – Build and push the virtual-test-harness container image to an
 #                  Azure Container Registry (ACR).
 #
 # Usage:
@@ -19,7 +19,7 @@ set -euo pipefail
 
 ACR_LOGIN_SERVER="${1:?Usage: $0 <acr-login-server> [image-tag]}"
 IMAGE_TAG="${2:-latest}"
-IMAGE_NAME="sensor-simulator"
+IMAGE_NAME="virtual-test-harness"
 FULL_IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

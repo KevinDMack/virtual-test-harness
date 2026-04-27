@@ -160,7 +160,7 @@ no additional infrastructure outside the cluster is required.
 │  Kubernetes Namespace                           │
 │                                                  │
 │  ┌──────────────────┐   MQTT (port 1883)  ┌──────────────────────┐
-│  │  sensor-simulator│ ──────────────────► │  mosquitto broker    │
+│  │  virtual-test-harness│ ──────────────────► │  mosquitto broker    │
 │  │  (app.py)        │                     │  (ClusterIP Service) │
 │  └──────────────────┘                     └──────────────────────┘
 │                                                  │
@@ -173,11 +173,11 @@ no additional infrastructure outside the cluster is required.
 ### Helm deployment – MQTT with built-in broker
 
 ```bash
-helm install sensor-alpha ./helm/sensor-simulator \
-  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+helm install sensor-alpha ./helm/virtual-test-harness \
+  --set image.repository=myregistry.azurecr.io/virtual-test-harness \
   --set config.sensor_name=sensor-alpha-01 \
   --set config.message_bus_type=mqtt \
-  --set config.mqtt_broker_host=sensor-alpha-sensor-simulator-mqtt-broker \
+  --set config.mqtt_broker_host=sensor-alpha-virtual-test-harness-mqtt-broker \
   --set config.mqtt_broker_port=1883 \
   --set config.message_topic=sensor/data \
   --set config.health_topic=sensor/health \
@@ -188,9 +188,9 @@ When `mqtt.broker.enabled=true` the chart creates:
 
 | Resource | Description |
 |---|---|
-| `Deployment` (`<release>-sensor-simulator-mqtt-broker`) | Runs the Mosquitto container |
-| `Service` (`<release>-sensor-simulator-mqtt-broker`) | ClusterIP on port 1883 (and 9001 for WebSocket if enabled) |
-| `ConfigMap` (`<release>-sensor-simulator-mqtt-broker-config`) | Mosquitto `mosquitto.conf` |
+| `Deployment` (`<release>-virtual-test-harness-mqtt-broker`) | Runs the Mosquitto container |
+| `Service` (`<release>-virtual-test-harness-mqtt-broker`) | ClusterIP on port 1883 (and 9001 for WebSocket if enabled) |
+| `ConfigMap` (`<release>-virtual-test-harness-mqtt-broker-config`) | Mosquitto `mosquitto.conf` |
 
 ### Configurable broker values (`values.yaml`)
 
@@ -216,7 +216,7 @@ subscribe using any MQTT client:
 
 ```bash
 # Port-forward for local testing
-kubectl port-forward svc/sensor-alpha-sensor-simulator-mqtt-broker 1883:1883
+kubectl port-forward svc/sensor-alpha-virtual-test-harness-mqtt-broker 1883:1883
 
 # Subscribe to all sensor data
 mosquitto_sub -h localhost -p 1883 -t "sensor/#" -v
@@ -230,7 +230,7 @@ The built-in broker defaults to unauthenticated connections (`allowAnonymous: tr
   via `mqtt.broker.extraConfig` (e.g. `password_file /mosquitto/config/passwd`).
   Mount the password file into the broker pod by extending the broker's
   `ConfigMap` or using an additional `Secret` + volume in a custom overlay.
-- Enable TLS by setting `config.mqtt_use_tls=true` on the sensor-simulator side
+- Enable TLS by setting `config.mqtt_use_tls=true` on the virtual-test-harness side
   and providing a valid CA/cert/key via `mqtt.broker.extraConfig` pointing to
   mounted certificate files.
 - Consider using an external, hardened MQTT broker and leaving

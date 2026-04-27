@@ -1,4 +1,4 @@
-# Default values for sensor-simulator.
+# Default values for virtual-test-harness.
 # Override these per-instance when installing multiple releases.
 
 # -- Number of simulator pod replicas.
@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   # -- Full image reference (registry/name:tag).
-  repository: myregistry.azurecr.io/sensor-simulator
+  repository: myregistry.azurecr.io/virtual-test-harness
   # -- Image pull policy.
   pullPolicy: IfNotPresent
   # -- Image tag. Overrides the chart appVersion when set.

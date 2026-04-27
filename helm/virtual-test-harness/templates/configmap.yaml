@@ -4,9 +4,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "sensor-simulator.fullname" . }}-config
+  name: {{ include "virtual-test-harness.fullname" . }}-config
   labels:
-    {{- include "sensor-simulator.labels" . | nindent 4 }}
+    {{- include "virtual-test-harness.labels" . | nindent 4 }}
 data:
   config.json: |
     {{ .Values.config | toJson }}
@@ -15,9 +15,9 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "sensor-simulator.fullname" . }}-inbox
+  name: {{ include "virtual-test-harness.fullname" . }}-inbox
   labels:
-    {{- include "sensor-simulator.labels" . | nindent 4 }}
+    {{- include "virtual-test-harness.labels" . | nindent 4 }}
 data:
   {{- range $filename, $content := .Values.inbox }}
   {{ $filename }}: |

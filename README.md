@@ -1,4 +1,4 @@
-# sensor-simulator
+# virtual-test-harness
 
 A self-contained synthetic sensor data simulator that runs on **AKS** (or any Kubernetes cluster) and publishes sensor readings and health messages to either **Azure Service Bus** (using Managed Identity) or an **MQTT broker**, selected via configuration.
 
@@ -21,7 +21,7 @@ virtual-test-harness/
 │   ├── conftest.py          # Pytest fixtures / Azure SDK stubs
 │   └── test_app.py          # Automated unit tests
 ├── helm/
-│   └── sensor-simulator/    # Helm chart
+│   └── virtual-test-harness/    # Helm chart
 │       ├── Chart.yaml
 │       ├── values.yaml
 │       └── templates/
@@ -143,7 +143,7 @@ Authentication is done via **Managed Identity** (`DefaultAzureCredential`). No s
 }
 ```
 
-> **Tip:** When using the Helm chart with the built-in MQTT broker option (see below), set `mqtt_broker_host` to the broker's Kubernetes Service name (e.g. `<release>-sensor-simulator-mqtt-broker`).
+> **Tip:** When using the Helm chart with the built-in MQTT broker option (see below), set `mqtt_broker_host` to the broker's Kubernetes Service name (e.g. `<release>-virtual-test-harness-mqtt-broker`).
 
 ---
 
@@ -224,8 +224,8 @@ az acr login --name <registry-name>
 
 ```bash
 helm install sensor-alpha \
-  ./helm/sensor-simulator \
-  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+  ./helm/virtual-test-harness \
+  --set image.repository=myregistry.azurecr.io/virtual-test-harness \
   --set config.sensor_name=sensor-alpha-01 \
   --set config.message_bus_type=servicebus \
   --set config.service_bus_namespace=myns.servicebus.windows.net
@@ -235,13 +235,13 @@ helm install sensor-alpha \
 
 ```bash
 # Instance 1
-helm install sensor-alpha ./helm/sensor-simulator \
+helm install sensor-alpha ./helm/virtual-test-harness \
   --set config.sensor_name=sensor-alpha-01 \
   --set config.message_bus_type=servicebus \
   --set config.message_topic=sensor-data-alpha
 
 # Instance 2
-helm install sensor-beta ./helm/sensor-simulator \
+helm install sensor-beta ./helm/virtual-test-harness \
   --set config.sensor_name=sensor-beta-01 \
   --set config.message_bus_type=servicebus \
   --set config.message_topic=sensor-data-beta
@@ -249,15 +249,15 @@ helm install sensor-beta ./helm/sensor-simulator \
 
 ### MQTT – with built-in Mosquitto broker pod
 
-Set `mqtt.broker.enabled=true` to deploy an [Eclipse Mosquitto](https://mosquitto.org/) broker alongside the simulator in the same namespace.  The sensor-simulator's config is automatically wired to connect to the broker Service.
+Set `mqtt.broker.enabled=true` to deploy an [Eclipse Mosquitto](https://mosquitto.org/) broker alongside the simulator in the same namespace.  The virtual-test-harness's config is automatically wired to connect to the broker Service.
 
 ```bash
 helm install sensor-alpha \
-  ./helm/sensor-simulator \
-  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+  ./helm/virtual-test-harness \
+  --set image.repository=myregistry.azurecr.io/virtual-test-harness \
   --set config.sensor_name=sensor-alpha-01 \
   --set config.message_bus_type=mqtt \
-  --set config.mqtt_broker_host=sensor-alpha-sensor-simulator-mqtt-broker \
+  --set config.mqtt_broker_host=sensor-alpha-virtual-test-harness-mqtt-broker \
   --set config.mqtt_broker_port=1883 \
   --set config.message_topic=sensor/data \
   --set config.health_topic=sensor/health \
@@ -268,8 +268,8 @@ helm install sensor-alpha \
 
 ```bash
 helm install sensor-alpha \
-  ./helm/sensor-simulator \
-  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+  ./helm/virtual-test-harness \
+  --set image.repository=myregistry.azurecr.io/virtual-test-harness \
   --set config.sensor_name=sensor-alpha-01 \
   --set config.message_bus_type=mqtt \
   --set config.mqtt_broker_host=my-external-broker.example.com \
@@ -284,7 +284,7 @@ helm install sensor-alpha \
 ### Using externally mounted volumes (PVCs)
 
 ```bash
-helm install sensor-alpha ./helm/sensor-simulator \
+helm install sensor-alpha ./helm/virtual-test-harness \
   --set useExternalVolumes=true \
   --set pvcNames.config=sensor-alpha-config-pvc \
   --set pvcNames.inbox=sensor-alpha-inbox-pvc
@@ -293,7 +293,7 @@ helm install sensor-alpha ./helm/sensor-simulator \
 ### Workload Identity (recommended for production)
 
 ```bash
-helm install sensor-alpha ./helm/sensor-simulator \
+helm install sensor-alpha ./helm/virtual-test-harness \
   --set serviceAccount.annotations."azure\.workload\.identity/client-id"=<client-id>
 ```
 
