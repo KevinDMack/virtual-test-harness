@@ -2,10 +2,15 @@
 Synthetic Sensor Simulator for the tactical-edge-demo.
 
 Reads JSON payloads from an inbox directory, publishes them as sensor messages
-to an Azure Service Bus topic on a configurable interval, and periodically
+to a configurable message bus on a configurable interval, and periodically
 publishes health messages to a separate topic.
 
-A circuit-breaker guards all Service Bus operations:
+Supported message bus types (set ``message_bus_type`` in config.json):
+  servicebus – Azure Service Bus (default).  Requires ``service_bus_namespace``.
+  mqtt       – MQTT broker via paho-mqtt.    Requires ``mqtt_broker_host`` and
+               ``mqtt_broker_port``.
+
+A circuit-breaker guards all publish operations:
   CLOSED    – normal operation; fewer than 5 errors in the last 10 minutes.
   HALF-OPEN – 1-5 errors in the last 10 minutes; still publishing but degraded.
   OPEN      – circuit is tripped (more than 5 errors in the last 10 minutes);
@@ -29,10 +34,11 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from azure.identity import DefaultAzureCredential
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
+import paho.mqtt.client as mqtt
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -123,6 +129,98 @@ class CircuitBreaker:
         return "green"
 
 
+# ── Message publisher protocol ─────────────────────────────────────────────────
+
+
+@runtime_checkable
+class MessagePublisher(Protocol):
+    """Common interface for all message-bus back-ends."""
+
+    def publish(self, topic: str, body: str) -> None:
+        """Send *body* (a JSON string) to *topic*."""
+        ...
+
+    def close(self) -> None:
+        """Release any underlying connections / resources."""
+        ...
+
+
+# ── Azure Service Bus publisher ────────────────────────────────────────────────
+
+
+class ServiceBusPublisher:
+    """Publish JSON messages to Azure Service Bus topics."""
+
+    def __init__(self, namespace: str) -> None:
+        credential = DefaultAzureCredential()
+        self._client = ServiceBusClient(
+            fully_qualified_namespace=namespace,
+            credential=credential,
+            logging_enable=False,
+        )
+        log.info("ServiceBusPublisher initialised for namespace: %s", namespace)
+
+    def publish(self, topic: str, body: str) -> None:
+        with self._client.get_topic_sender(topic_name=topic) as sender:
+            sender.send_messages(ServiceBusMessage(body, content_type="application/json"))
+        log.debug("ServiceBus: published to topic '%s'", topic)
+
+    def close(self) -> None:
+        self._client.close()
+
+
+# ── MQTT publisher ─────────────────────────────────────────────────────────────
+
+
+class MQTTPublisher:
+    """Publish JSON messages to an MQTT broker using paho-mqtt."""
+
+    def __init__(self, cfg: dict) -> None:
+        client_id: str = cfg.get("mqtt_client_id") or cfg.get("sensor_name", "")
+        self._qos: int = int(cfg.get("mqtt_qos", 1))
+
+        self._client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=client_id,
+        )
+
+        username: str = cfg.get("mqtt_username", "")
+        password: str = cfg.get("mqtt_password", "")
+        if username:
+            self._client.username_pw_set(username, password if password else None)
+
+        if cfg.get("mqtt_use_tls", False):
+            self._client.tls_set()
+
+        host: str = cfg["mqtt_broker_host"]
+        port: int = int(cfg["mqtt_broker_port"])
+        self._client.connect(host, port)
+        self._client.loop_start()
+        log.info("MQTTPublisher connected to %s:%d", host, port)
+
+    def publish(self, topic: str, body: str) -> None:
+        result = self._client.publish(topic, body, qos=self._qos)
+        result.wait_for_publish()
+        log.debug("MQTT: published to topic '%s'", topic)
+
+    def close(self) -> None:
+        self._client.loop_stop()
+        self._client.disconnect()
+
+
+# ── Publisher factory ──────────────────────────────────────────────────────────
+
+
+def create_publisher(cfg: dict) -> MessagePublisher:
+    """Instantiate the correct :class:`MessagePublisher` from *cfg*."""
+    bus_type: str = cfg.get("message_bus_type", "servicebus").lower()
+    if bus_type == "servicebus":
+        return ServiceBusPublisher(cfg["service_bus_namespace"])
+    if bus_type == "mqtt":
+        return MQTTPublisher(cfg)
+    raise ValueError(f"Unknown message_bus_type: '{bus_type}'. Must be 'servicebus' or 'mqtt'.")
+
+
 # ── Config loading ─────────────────────────────────────────────────────────────
 
 
@@ -130,16 +228,29 @@ def load_config(path: Path) -> dict[str, Any]:
     log.info("Loading config from %s", path)
     with path.open() as fh:
         cfg = json.load(fh)
-    required = [
+
+    # Keys required regardless of bus type.
+    always_required = [
         "sensor_name",
         "message_interval",
         "message_topic",
         "health_interval",
         "health_topic",
         "run_continuous",
-        "service_bus_namespace",
+        "message_bus_type",
     ]
-    missing = [k for k in required if k not in cfg]
+    # Keys required only for a specific bus type.
+    bus_specific_required: dict[str, list[str]] = {
+        "servicebus": ["service_bus_namespace"],
+        "mqtt": ["mqtt_broker_host", "mqtt_broker_port"],
+    }
+
+    missing = [k for k in always_required if k not in cfg]
+
+    bus_type: str = cfg.get("message_bus_type", "").lower()
+    extra_required = bus_specific_required.get(bus_type, [])
+    missing += [k for k in extra_required if k not in cfg]
+
     if missing:
         raise ValueError(f"Config is missing required keys: {missing}")
     return cfg
@@ -187,20 +298,19 @@ def build_health_message(sensor_name: str, cb: CircuitBreaker) -> dict:
     }
 
 
-# ── Service Bus helpers ────────────────────────────────────────────────────────
+# ── Publisher helpers ──────────────────────────────────────────────────────────
 
 
 def send_to_topic(
-    client: ServiceBusClient,
+    publisher: MessagePublisher,
     topic: str,
     payload: dict,
     cb: CircuitBreaker,
 ) -> None:
-    """Publish a single JSON message to a Service Bus topic."""
+    """Publish a single JSON message to a topic via the active publisher."""
     body = json.dumps(payload)
     try:
-        with client.get_topic_sender(topic_name=topic) as sender:
-            sender.send_messages(ServiceBusMessage(body, content_type="application/json"))
+        publisher.publish(topic, body)
         cb.record_success()
         log.debug("Published to topic '%s': %s", topic, body)
     except Exception as exc:  # noqa: BLE001
@@ -213,7 +323,7 @@ def send_to_topic(
 
 
 def health_loop(
-    client: ServiceBusClient,
+    publisher: MessagePublisher,
     cfg: dict,
     cb: CircuitBreaker,
     stop_event: threading.Event,
@@ -231,7 +341,7 @@ def health_loop(
             repr(msg["last_error_message"]) if msg["last_error_message"] else "(none)",
         )
         try:
-            send_to_topic(client, health_topic, msg, cb)
+            send_to_topic(publisher, health_topic, msg, cb)
         except Exception:  # noqa: BLE001
             # Error already recorded by send_to_topic; continue publishing health.
             pass
@@ -242,7 +352,7 @@ def health_loop(
 
 
 def sensor_loop(
-    client: ServiceBusClient,
+    publisher: MessagePublisher,
     cfg: dict,
     payloads: list[dict],
     cb: CircuitBreaker,
@@ -283,7 +393,7 @@ def sensor_loop(
             msg["correlation_id"],
         )
         try:
-            send_to_topic(client, message_topic, msg, cb)
+            send_to_topic(publisher, message_topic, msg, cb)
         except Exception:  # noqa: BLE001
             # Error already recorded; back off slightly but continue.
             pass
@@ -298,39 +408,34 @@ def main() -> None:
     cfg = load_config(CONFIG_PATH)
     payloads = load_inbox(INBOX_DIR)
 
-    namespace: str = cfg["service_bus_namespace"]
+    bus_type: str = cfg.get("message_bus_type", "servicebus")
     log.info(
-        "Starting sensor simulator: sensor=%s namespace=%s",
+        "Starting sensor simulator: sensor=%s message_bus_type=%s",
         cfg["sensor_name"],
-        namespace,
+        bus_type,
     )
 
-    credential = DefaultAzureCredential()
-    client = ServiceBusClient(
-        fully_qualified_namespace=namespace,
-        credential=credential,
-        logging_enable=False,
-    )
+    publisher = create_publisher(cfg)
 
     cb = CircuitBreaker()
     stop_event = threading.Event()
 
     health_thread = threading.Thread(
         target=health_loop,
-        args=(client, cfg, cb, stop_event),
+        args=(publisher, cfg, cb, stop_event),
         name="health-publisher",
         daemon=True,
     )
     health_thread.start()
 
     try:
-        sensor_loop(client, cfg, payloads, cb, stop_event)
+        sensor_loop(publisher, cfg, payloads, cb, stop_event)
     except KeyboardInterrupt:
         log.info("Interrupted – shutting down.")
     finally:
         stop_event.set()
         health_thread.join(timeout=5)
-        client.close()
+        publisher.close()
         log.info("Shutdown complete.")
 
 
