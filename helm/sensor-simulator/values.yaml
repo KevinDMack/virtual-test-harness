@@ -133,3 +133,20 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# -- Log volume configuration.
+# Telemetry logs are written to /logs/app.log inside the container and picked
+# up by Arc and monitoring services (e.g. Azure Monitor Agent, Fluent Bit).
+# By default an emptyDir volume is used so the logs are accessible to any
+# log-scraping sidecar or DaemonSet on the same node.
+# Enable persistence to retain logs across pod restarts via a PVC.
+logs:
+  persistence:
+    # -- When true, back the /logs mount with a PersistentVolumeClaim.
+    enabled: false
+    # -- Use an existing PVC instead of creating one. Leave empty to auto-create.
+    existingClaim: ""
+    # -- Storage class for the auto-created PVC. Leave empty to use the cluster default.
+    storageClass: ""
+    # -- Size of the auto-created PVC.
+    size: 1Gi

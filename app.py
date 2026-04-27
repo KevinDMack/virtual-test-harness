@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import os
 import threading
 import time
@@ -40,20 +41,42 @@ from azure.identity import DefaultAzureCredential
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 import paho.mqtt.client as mqtt
 
-# ── Logging ────────────────────────────────────────────────────────────────────
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%SZ",
-)
-log = logging.getLogger(__name__)
-
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(os.getenv("APP_BASE_DIR", "/app"))
 CONFIG_PATH = Path(os.getenv("CONFIG_PATH", str(BASE_DIR / "config" / "config.json")))
 INBOX_DIR = Path(os.getenv("INBOX_DIR", str(BASE_DIR / "inbox")))
+LOG_DIR = Path(os.getenv("LOG_DIR", "/logs"))
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
+_LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format=_LOG_FORMAT,
+    datefmt=_LOG_DATE_FORMAT,
+)
+
+# File handler – write rotating logs to LOG_DIR/app.log so that Arc and
+# monitoring services (e.g. Azure Monitor, Fluent Bit) can scrape them from
+# the mounted /logs volume.
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _file_handler = logging.handlers.RotatingFileHandler(
+        LOG_DIR / "app.log",
+        maxBytes=10 * 1024 * 1024,  # 10 MB per file
+        backupCount=5,
+    )
+    _file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATE_FORMAT))
+    logging.getLogger().addHandler(_file_handler)
+except OSError as _log_err:
+    logging.getLogger().warning(
+        "Could not set up file logging to %s: %s – logging to console only.", LOG_DIR, _log_err
+    )
+
+log = logging.getLogger(__name__)
 
 # ── Circuit-breaker constants ──────────────────────────────────────────────────
 
