@@ -40,6 +40,8 @@ spec:
               value: /app/config/config.json
             - name: INBOX_DIR
               value: /app/inbox
+            - name: LOG_DIR
+              value: /logs
           volumeMounts:
             - name: config-volume
               mountPath: /app/config
@@ -47,6 +49,8 @@ spec:
             - name: inbox-volume
               mountPath: /app/inbox
               readOnly: true
+            - name: logs-volume
+              mountPath: /logs
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
@@ -65,6 +69,13 @@ spec:
           configMap:
             name: {{ include "sensor-simulator.fullname" . }}-inbox
         {{- end }}
+        - name: logs-volume
+          {{- if .Values.logs.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.logs.persistence.existingClaim | default (printf "%s-logs" (include "sensor-simulator.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
