@@ -12,13 +12,14 @@ cluster in **Azure Government** (`usgovarizona`).
 2. [Prerequisites](#prerequisites)
 3. [Directory Layout](#directory-layout)
 4. [Modules](#modules)
-5. [Role Assignments](#role-assignments)
-6. [Quick Start](#quick-start)
-7. [Script Reference](#script-reference)
-8. [VS Code Tasks](#vs-code-tasks)
-9. [Backend State](#backend-state)
-10. [Variables Reference](#variables-reference)
-11. [Outputs Reference](#outputs-reference)
+5. [MQTT Pub/Sub Option](#mqtt-pubsub-option)
+6. [Role Assignments](#role-assignments)
+7. [Quick Start](#quick-start)
+8. [Script Reference](#script-reference)
+9. [VS Code Tasks](#vs-code-tasks)
+10. [Backend State](#backend-state)
+11. [Variables Reference](#variables-reference)
+12. [Outputs Reference](#outputs-reference)
 
 ---
 
@@ -141,6 +142,99 @@ Deploys an Azure Container Registry with:
 
 * `admin_enabled = false` – the legacy admin username/password is disabled;
   image pulls use the `AcrPull` role assigned to the AKS kubelet identity.
+
+---
+
+## MQTT Pub/Sub Option
+
+The simulator supports **MQTT** as an alternative to Azure Service Bus.  Setting
+`message_bus_type: "mqtt"` in `config.json` switches the back-end.  An
+[Eclipse Mosquitto](https://mosquitto.org/) broker can be co-deployed inside the
+same Kubernetes namespace using the Helm chart's built-in `mqtt.broker` option –
+no additional infrastructure outside the cluster is required.
+
+### Architecture (MQTT mode)
+
+```
+┌─────────────────────────────────────────────────┐
+│  Kubernetes Namespace                           │
+│                                                  │
+│  ┌──────────────────┐   MQTT (port 1883)  ┌──────────────────────┐
+│  │  sensor-simulator│ ──────────────────► │  mosquitto broker    │
+│  │  (app.py)        │                     │  (ClusterIP Service) │
+│  └──────────────────┘                     └──────────────────────┘
+│                                                  │
+│  External consumers connect to the broker        │
+│  via a LoadBalancer / NodePort Service or        │
+│  by subscribing from within the cluster.         │
+└─────────────────────────────────────────────────┘
+```
+
+### Helm deployment – MQTT with built-in broker
+
+```bash
+helm install sensor-alpha ./helm/sensor-simulator \
+  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+  --set config.sensor_name=sensor-alpha-01 \
+  --set config.message_bus_type=mqtt \
+  --set config.mqtt_broker_host=sensor-alpha-sensor-simulator-mqtt-broker \
+  --set config.mqtt_broker_port=1883 \
+  --set config.message_topic=sensor/data \
+  --set config.health_topic=sensor/health \
+  --set mqtt.broker.enabled=true
+```
+
+When `mqtt.broker.enabled=true` the chart creates:
+
+| Resource | Description |
+|---|---|
+| `Deployment` (`<release>-sensor-simulator-mqtt-broker`) | Runs the Mosquitto container |
+| `Service` (`<release>-sensor-simulator-mqtt-broker`) | ClusterIP on port 1883 (and 9001 for WebSocket if enabled) |
+| `ConfigMap` (`<release>-sensor-simulator-mqtt-broker-config`) | Mosquitto `mosquitto.conf` |
+
+### Configurable broker values (`values.yaml`)
+
+| Value | Default | Description |
+|---|---|---|
+| `mqtt.broker.enabled` | `false` | Deploy the Mosquitto broker pod |
+| `mqtt.broker.image.repository` | `eclipse-mosquitto` | Broker container image |
+| `mqtt.broker.image.tag` | `2.0.18` | Image tag |
+| `mqtt.broker.image.pullPolicy` | `IfNotPresent` | Pull policy |
+| `mqtt.broker.port` | `1883` | MQTT TCP listener port |
+| `mqtt.broker.wsPort` | `9001` | WebSocket listener port (set to `0` to disable) |
+| `mqtt.broker.allowAnonymous` | `true` | Allow unauthenticated connections (dev only; set `false` in production) |
+| `mqtt.broker.persistence.enabled` | `false` | Mount a PVC for broker persistence |
+| `mqtt.broker.persistence.size` | `1Gi` | PVC size when persistence is enabled |
+| `mqtt.broker.resources` | (see values.yaml) | CPU/memory requests and limits |
+| `mqtt.broker.extraConfig` | `""` | Additional lines appended to `mosquitto.conf` |
+
+### Connecting an external subscriber
+
+After deploying with `mqtt.broker.enabled=true`, expose the broker Service
+externally (e.g. by patching to `LoadBalancer` or creating a `NodePort`) and
+subscribe using any MQTT client:
+
+```bash
+# Port-forward for local testing
+kubectl port-forward svc/sensor-alpha-sensor-simulator-mqtt-broker 1883:1883
+
+# Subscribe to all sensor data
+mosquitto_sub -h localhost -p 1883 -t "sensor/#" -v
+```
+
+### Security considerations
+
+The built-in broker defaults to unauthenticated connections (`allowAnonymous: true`), which is intended for **development and cluster-internal use only**.  For production:
+
+- Set `mqtt.broker.allowAnonymous=false` and supply a Mosquitto password file
+  via `mqtt.broker.extraConfig` (e.g. `password_file /mosquitto/config/passwd`).
+  Mount the password file into the broker pod by extending the broker's
+  `ConfigMap` or using an additional `Secret` + volume in a custom overlay.
+- Enable TLS by setting `config.mqtt_use_tls=true` on the sensor-simulator side
+  and providing a valid CA/cert/key via `mqtt.broker.extraConfig` pointing to
+  mounted certificate files.
+- Consider using an external, hardened MQTT broker and leaving
+  `mqtt.broker.enabled=false`.
 
 ---
 

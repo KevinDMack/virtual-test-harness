@@ -52,7 +52,54 @@ config:
   health_interval: 30
   health_topic: "sensor-health"
   run_continuous: true
+  # -- Message bus back-end: "servicebus" or "mqtt"
+  message_bus_type: "servicebus"
+
+  # -- Azure Service Bus settings (required when message_bus_type is "servicebus")
   service_bus_namespace: "your-namespace.servicebus.windows.net"
+
+  # -- MQTT settings (required when message_bus_type is "mqtt")
+  # mqtt_broker_host: "mosquitto"
+  # mqtt_broker_port: 1883
+  # mqtt_client_id: ""      # defaults to sensor_name
+  # mqtt_username: ""
+  # mqtt_password: ""
+  # mqtt_use_tls: false
+  # mqtt_qos: 1
+
+# -- MQTT broker (Eclipse Mosquitto) sidecar/co-located pod.
+# Enable this to deploy a Mosquitto broker in the same namespace as the
+# simulator.  Useful for MQTT-mode deployments that do not have an external broker.
+mqtt:
+  broker:
+    # -- Deploy the Mosquitto broker Deployment + Service + ConfigMap.
+    enabled: false
+    image:
+      repository: eclipse-mosquitto
+      tag: "2.0.18"
+      pullPolicy: IfNotPresent
+    # -- MQTT TCP listener port.
+    port: 1883
+    # -- WebSocket listener port. Set to 0 to disable.
+    wsPort: 9001
+    persistence:
+      # -- Mount a PersistentVolumeClaim for broker data persistence.
+      enabled: false
+      # -- PVC size when persistence is enabled.
+      size: 1Gi
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "100m"
+        memory: "64Mi"
+    # -- Allow unauthenticated connections to the broker.
+    # Set to false and configure mqtt.broker.extraConfig with password_file
+    # and per-user ACLs for production deployments.
+    allowAnonymous: true
+    # -- Extra lines appended verbatim to mosquitto.conf (e.g. auth settings).
+    extraConfig: ""
 
 # -- Inbox messages.
 # Keys map to filenames; values are JSON arrays or objects (as YAML).

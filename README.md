@@ -1,6 +1,6 @@
 # sensor-simulator
 
-A self-contained synthetic sensor data simulator that runs on **AKS** (or any Kubernetes cluster) and publishes sensor readings and health messages to **Azure Service Bus** using Managed Identity.
+A self-contained synthetic sensor data simulator that runs on **AKS** (or any Kubernetes cluster) and publishes sensor readings and health messages to either **Azure Service Bus** (using Managed Identity) or an **MQTT broker**, selected via configuration.
 
 ---
 
@@ -28,6 +28,7 @@ virtual-test-harness/
 │           ├── _helpers.tpl
 │           ├── configmap.yaml
 │           ├── deployment.yaml
+│           ├── mqtt-broker.yaml
 │           └── serviceaccount.yaml
 ├── infra/                   # Terraform – Azure Government AKS infrastructure
 │   ├── providers.tf
@@ -83,14 +84,22 @@ bash infra/scripts/apply.sh
 
 ## Configuration (`config/config.json`)
 
+### Common fields (required for all bus types)
+
 | Field | Type | Description |
 |---|---|---|
 | `sensor_name` | string | Name stamped on every outbound message |
 | `message_interval` | number | Seconds between sensor messages |
-| `message_topic` | string | Azure Service Bus topic for sensor data |
+| `message_topic` | string | Topic / MQTT topic path for sensor data |
 | `health_interval` | number | Seconds between health messages |
-| `health_topic` | string | Azure Service Bus topic for health messages |
+| `health_topic` | string | Topic / MQTT topic path for health messages |
 | `run_continuous` | bool | Restart the inbox list when exhausted |
+| `message_bus_type` | string | `"servicebus"` (default) or `"mqtt"` |
+
+### Azure Service Bus (`message_bus_type: "servicebus"`)
+
+| Field | Type | Description |
+|---|---|---|
 | `service_bus_namespace` | string | FQDN of the Service Bus namespace (e.g. `myns.servicebus.windows.net`) |
 
 ```json
@@ -101,11 +110,40 @@ bash infra/scripts/apply.sh
   "health_interval": 30,
   "health_topic": "sensor-health",
   "run_continuous": true,
+  "message_bus_type": "servicebus",
   "service_bus_namespace": "your-namespace.servicebus.windows.net"
 }
 ```
 
-Authentication to Azure Service Bus is done via **Managed Identity** (`DefaultAzureCredential`). No secrets are stored in the config file.
+Authentication is done via **Managed Identity** (`DefaultAzureCredential`). No secrets are stored in the config file.
+
+### MQTT (`message_bus_type: "mqtt"`)
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `mqtt_broker_host` | string | ✅ | – | Hostname or IP of the MQTT broker |
+| `mqtt_broker_port` | number | ✅ | – | TCP port of the MQTT broker (typically `1883` or `8883` for TLS) |
+| `mqtt_client_id` | string | ❌ | `sensor_name` | MQTT client identifier |
+| `mqtt_username` | string | ❌ | `""` | Username for broker authentication |
+| `mqtt_password` | string | ❌ | `""` | Password for broker authentication |
+| `mqtt_use_tls` | bool | ❌ | `false` | Enable TLS for the broker connection |
+| `mqtt_qos` | number | ❌ | `1` | MQTT QoS level (0, 1, or 2) |
+
+```json
+{
+  "sensor_name": "sensor-alpha-01",
+  "message_interval": 5,
+  "message_topic": "sensor/data",
+  "health_interval": 30,
+  "health_topic": "sensor/health",
+  "run_continuous": true,
+  "message_bus_type": "mqtt",
+  "mqtt_broker_host": "mosquitto",
+  "mqtt_broker_port": 1883
+}
+```
+
+> **Tip:** When using the Helm chart with the built-in MQTT broker option (see below), set `mqtt_broker_host` to the broker's Kubernetes Service name (e.g. `<release>-sensor-simulator-mqtt-broker`).
 
 ---
 
@@ -182,28 +220,65 @@ az acr login --name <registry-name>
 
 ## Helm Deployment
 
-### Single instance
+### Azure Service Bus – single instance
 
 ```bash
 helm install sensor-alpha \
   ./helm/sensor-simulator \
   --set image.repository=myregistry.azurecr.io/sensor-simulator \
   --set config.sensor_name=sensor-alpha-01 \
+  --set config.message_bus_type=servicebus \
   --set config.service_bus_namespace=myns.servicebus.windows.net
 ```
 
-### Multiple instances
+### Azure Service Bus – multiple instances
 
 ```bash
 # Instance 1
 helm install sensor-alpha ./helm/sensor-simulator \
   --set config.sensor_name=sensor-alpha-01 \
+  --set config.message_bus_type=servicebus \
   --set config.message_topic=sensor-data-alpha
 
 # Instance 2
 helm install sensor-beta ./helm/sensor-simulator \
   --set config.sensor_name=sensor-beta-01 \
+  --set config.message_bus_type=servicebus \
   --set config.message_topic=sensor-data-beta
+```
+
+### MQTT – with built-in Mosquitto broker pod
+
+Set `mqtt.broker.enabled=true` to deploy an [Eclipse Mosquitto](https://mosquitto.org/) broker alongside the simulator in the same namespace.  The sensor-simulator's config is automatically wired to connect to the broker Service.
+
+```bash
+helm install sensor-alpha \
+  ./helm/sensor-simulator \
+  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+  --set config.sensor_name=sensor-alpha-01 \
+  --set config.message_bus_type=mqtt \
+  --set config.mqtt_broker_host=sensor-alpha-sensor-simulator-mqtt-broker \
+  --set config.mqtt_broker_port=1883 \
+  --set config.message_topic=sensor/data \
+  --set config.health_topic=sensor/health \
+  --set mqtt.broker.enabled=true
+```
+
+#### MQTT with TLS and authentication
+
+```bash
+helm install sensor-alpha \
+  ./helm/sensor-simulator \
+  --set image.repository=myregistry.azurecr.io/sensor-simulator \
+  --set config.sensor_name=sensor-alpha-01 \
+  --set config.message_bus_type=mqtt \
+  --set config.mqtt_broker_host=my-external-broker.example.com \
+  --set config.mqtt_broker_port=8883 \
+  --set config.mqtt_use_tls=true \
+  --set config.mqtt_username=myuser \
+  --set config.mqtt_password=mypassword \
+  --set config.message_topic=sensor/data \
+  --set config.health_topic=sensor/health
 ```
 
 ### Using externally mounted volumes (PVCs)
@@ -233,7 +308,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Tests cover `CircuitBreaker`, config/inbox loading, message builders, Service Bus publishing, and the sensor and health publish loops.  All Azure SDK calls are stubbed so no real Azure resources are required.
+Tests cover `CircuitBreaker`, config/inbox loading, message builders, publisher implementations (Service Bus and MQTT), factory, and the sensor and health publish loops.  All Azure SDK and paho-mqtt calls are stubbed so no real infrastructure is required.
 
 ---
 
