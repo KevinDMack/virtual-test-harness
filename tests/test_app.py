@@ -112,14 +112,26 @@ class TestCircuitBreaker:
 
 
 class TestLoadConfig:
-    _VALID_CONFIG = {
+    _VALID_CONFIG_SERVICEBUS = {
         "sensor_name": "test-sensor",
         "message_interval": 5,
         "message_topic": "sensor-data",
         "health_interval": 30,
         "health_topic": "sensor-health",
         "run_continuous": True,
+        "message_bus_type": "servicebus",
         "service_bus_namespace": "test.servicebus.windows.net",
+    }
+    _VALID_CONFIG_MQTT = {
+        "sensor_name": "test-sensor",
+        "message_interval": 5,
+        "message_topic": "sensor/data",
+        "health_interval": 30,
+        "health_topic": "sensor/health",
+        "run_continuous": True,
+        "message_bus_type": "mqtt",
+        "mqtt_broker_host": "broker.example.com",
+        "mqtt_broker_port": 1883,
     }
 
     def _write_config(self, tmp_path: Path, data: dict) -> Path:
@@ -127,28 +139,57 @@ class TestLoadConfig:
         cfg_file.write_text(json.dumps(data))
         return cfg_file
 
-    def test_valid_config_loads_all_keys(self, tmp_path):
-        cfg_file = self._write_config(tmp_path, self._VALID_CONFIG)
+    def test_valid_servicebus_config_loads(self, tmp_path):
+        cfg_file = self._write_config(tmp_path, self._VALID_CONFIG_SERVICEBUS)
         cfg = app.load_config(cfg_file)
-        assert cfg == self._VALID_CONFIG
+        assert cfg == self._VALID_CONFIG_SERVICEBUS
 
-    def test_missing_required_key_raises_value_error(self, tmp_path):
-        incomplete = {k: v for k, v in self._VALID_CONFIG.items() if k != "sensor_name"}
+    def test_valid_mqtt_config_loads(self, tmp_path):
+        cfg_file = self._write_config(tmp_path, self._VALID_CONFIG_MQTT)
+        cfg = app.load_config(cfg_file)
+        assert cfg == self._VALID_CONFIG_MQTT
+
+    def test_missing_sensor_name_raises(self, tmp_path):
+        incomplete = {k: v for k, v in self._VALID_CONFIG_SERVICEBUS.items() if k != "sensor_name"}
         cfg_file = self._write_config(tmp_path, incomplete)
         with pytest.raises(ValueError, match="sensor_name"):
             app.load_config(cfg_file)
 
-    def test_all_required_keys_reported_when_missing(self, tmp_path):
+    def test_missing_message_bus_type_raises(self, tmp_path):
+        incomplete = {k: v for k, v in self._VALID_CONFIG_SERVICEBUS.items() if k != "message_bus_type"}
+        cfg_file = self._write_config(tmp_path, incomplete)
+        with pytest.raises(ValueError, match="message_bus_type"):
+            app.load_config(cfg_file)
+
+    def test_servicebus_missing_namespace_raises(self, tmp_path):
+        incomplete = {k: v for k, v in self._VALID_CONFIG_SERVICEBUS.items() if k != "service_bus_namespace"}
+        cfg_file = self._write_config(tmp_path, incomplete)
+        with pytest.raises(ValueError, match="service_bus_namespace"):
+            app.load_config(cfg_file)
+
+    def test_mqtt_missing_broker_host_raises(self, tmp_path):
+        incomplete = {k: v for k, v in self._VALID_CONFIG_MQTT.items() if k != "mqtt_broker_host"}
+        cfg_file = self._write_config(tmp_path, incomplete)
+        with pytest.raises(ValueError, match="mqtt_broker_host"):
+            app.load_config(cfg_file)
+
+    def test_mqtt_missing_broker_port_raises(self, tmp_path):
+        incomplete = {k: v for k, v in self._VALID_CONFIG_MQTT.items() if k != "mqtt_broker_port"}
+        cfg_file = self._write_config(tmp_path, incomplete)
+        with pytest.raises(ValueError, match="mqtt_broker_port"):
+            app.load_config(cfg_file)
+
+    def test_all_required_keys_reported_when_empty(self, tmp_path):
         cfg_file = self._write_config(tmp_path, {})
         with pytest.raises(ValueError) as exc_info:
             app.load_config(cfg_file)
         msg = str(exc_info.value)
         assert "sensor_name" in msg
         assert "message_interval" in msg
-        assert "service_bus_namespace" in msg
+        assert "message_bus_type" in msg
 
     def test_extra_keys_are_preserved(self, tmp_path):
-        data = {**self._VALID_CONFIG, "extra_field": "extra_value"}
+        data = {**self._VALID_CONFIG_SERVICEBUS, "extra_field": "extra_value"}
         cfg_file = self._write_config(tmp_path, data)
         cfg = app.load_config(cfg_file)
         assert cfg["extra_field"] == "extra_value"
@@ -275,60 +316,53 @@ class TestBuildHealthMessage:
 
 
 class TestSendToTopic:
-    def _make_client(self):
-        """Return a mock ServiceBusClient with a working context-manager sender."""
-        sender = MagicMock()
-        sender.__enter__ = MagicMock(return_value=sender)
-        sender.__exit__ = MagicMock(return_value=False)
-        client = MagicMock()
-        client.get_topic_sender.return_value = sender
-        return client, sender
+    def _make_publisher(self):
+        """Return a simple mock implementing the MessagePublisher protocol."""
+        pub = MagicMock(spec=app.MessagePublisher)
+        return pub
 
-    def test_success_calls_send_messages(self):
-        client, sender = self._make_client()
+    def test_success_calls_publish(self):
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
-        app.send_to_topic(client, "my-topic", {"key": "val"}, cb)
-        sender.send_messages.assert_called_once()
+        app.send_to_topic(pub, "my-topic", {"key": "val"}, cb)
+        pub.publish.assert_called_once()
 
     def test_success_passes_correct_topic(self):
-        client, _ = self._make_client()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
-        app.send_to_topic(client, "target-topic", {}, cb)
-        client.get_topic_sender.assert_called_once_with(topic_name="target-topic")
+        app.send_to_topic(pub, "target-topic", {}, cb)
+        topic_arg = pub.publish.call_args[0][0]
+        assert topic_arg == "target-topic"
 
     def test_success_records_cb_success(self):
-        client, _ = self._make_client()
+        pub = self._make_publisher()
         cb = MagicMock(spec=app.CircuitBreaker)
-        app.send_to_topic(client, "topic", {}, cb)
+        app.send_to_topic(pub, "topic", {}, cb)
         cb.record_success.assert_called_once()
 
     def test_failure_records_cb_error(self):
-        client = MagicMock()
-        client.get_topic_sender.side_effect = RuntimeError("network error")
+        pub = self._make_publisher()
+        pub.publish.side_effect = RuntimeError("network error")
         cb = app.CircuitBreaker()
         with pytest.raises(RuntimeError):
-            app.send_to_topic(client, "topic", {}, cb)
+            app.send_to_topic(pub, "topic", {}, cb)
         assert cb.last_error_message == "network error"
 
     def test_failure_raises_exception(self):
-        client = MagicMock()
-        client.get_topic_sender.side_effect = RuntimeError("timeout")
+        pub = self._make_publisher()
+        pub.publish.side_effect = RuntimeError("timeout")
         cb = app.CircuitBreaker()
         with pytest.raises(RuntimeError, match="timeout"):
-            app.send_to_topic(client, "topic", {}, cb)
+            app.send_to_topic(pub, "topic", {}, cb)
 
     def test_message_body_is_json(self):
-        """The ServiceBusMessage should receive a JSON-serialised string body."""
-        client, sender = self._make_client()
+        """The publisher should receive a JSON-serialised string body."""
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         payload = {"reading_type": "temperature", "value": 72.4}
-
-        with patch("app.ServiceBusMessage") as mock_msg_cls:
-            app.send_to_topic(client, "topic", payload, cb)
-            args, kwargs = mock_msg_cls.call_args
-            body = args[0]
-            assert json.loads(body) == payload
-            assert kwargs.get("content_type") == "application/json"
+        app.send_to_topic(pub, "topic", payload, cb)
+        _, body_arg = pub.publish.call_args[0]
+        assert json.loads(body_arg) == payload
 
 
 # ── sensor_loop ────────────────────────────────────────────────────────────────
@@ -348,25 +382,28 @@ class TestSensorLoop:
         stop.is_set.side_effect = [False] * n + [True]
         return stop
 
+    def _make_publisher(self):
+        return MagicMock(spec=app.MessagePublisher)
+
     def test_sends_all_payloads_once(self):
         payloads = [{"i": 0}, {"i": 1}, {"i": 2}]
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(10)
 
         with patch("app.send_to_topic") as mock_send:
-            app.sensor_loop(client, self._BASE_CFG, payloads, cb, stop)
+            app.sensor_loop(pub, self._BASE_CFG, payloads, cb, stop)
 
         assert mock_send.call_count == 3
 
     def test_stops_when_not_continuous_after_exhaust(self):
         payloads = [{"i": 0}]
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(10)
 
         with patch("app.send_to_topic") as mock_send:
-            app.sensor_loop(client, self._BASE_CFG, payloads, cb, stop)
+            app.sensor_loop(pub, self._BASE_CFG, payloads, cb, stop)
 
         # Should send exactly one message then exit (run_continuous=False)
         assert mock_send.call_count == 1
@@ -374,13 +411,13 @@ class TestSensorLoop:
     def test_restarts_when_run_continuous(self):
         payloads = [{"i": 0}]
         cfg = {**self._BASE_CFG, "run_continuous": True}
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         # Allow exactly 3 loop iterations before stopping
         stop = self._stop_after(3)
 
         with patch("app.send_to_topic") as mock_send:
-            app.sensor_loop(client, cfg, payloads, cb, stop)
+            app.sensor_loop(pub, cfg, payloads, cb, stop)
 
         # Each iteration should send the single payload (cycles 3 times)
         assert mock_send.call_count == 3
@@ -388,7 +425,7 @@ class TestSensorLoop:
     def test_skips_send_when_circuit_open(self):
         payloads = [{"i": 0}]
         cfg = {**self._BASE_CFG, "run_continuous": True}
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         # Trip the circuit breaker
         for i in range(6):
@@ -397,30 +434,30 @@ class TestSensorLoop:
         stop = self._stop_after(3)
 
         with patch("app.send_to_topic") as mock_send:
-            app.sensor_loop(client, cfg, payloads, cb, stop)
+            app.sensor_loop(pub, cfg, payloads, cb, stop)
 
         mock_send.assert_not_called()
 
     def test_continues_after_send_failure(self):
         payloads = [{"i": 0}, {"i": 1}]
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(10)
 
         with patch("app.send_to_topic", side_effect=RuntimeError("transient")) as mock_send:
             # Should not raise; errors are swallowed in sensor_loop
-            app.sensor_loop(client, self._BASE_CFG, payloads, cb, stop)
+            app.sensor_loop(pub, self._BASE_CFG, payloads, cb, stop)
 
         assert mock_send.call_count == 2
 
     def test_sends_payloads_in_order(self):
         payloads = [{"order": i} for i in range(3)]
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(10)
         sent_contents = []
 
-        def capture_send(c, topic, payload, circuit_breaker):
+        def capture_send(publisher, topic, payload, circuit_breaker):
             sent_contents.append(payload["content"])
 
         def fake_build(name, content):
@@ -428,7 +465,7 @@ class TestSensorLoop:
 
         with patch("app.send_to_topic", side_effect=capture_send):
             with patch("app.build_sensor_message", side_effect=fake_build):
-                app.sensor_loop(client, self._BASE_CFG, payloads, cb, stop)
+                app.sensor_loop(pub, self._BASE_CFG, payloads, cb, stop)
 
         assert sent_contents == payloads
 
@@ -448,56 +485,245 @@ class TestHealthLoop:
         stop.is_set.side_effect = [False] * n + [True]
         return stop
 
+    def _make_publisher(self):
+        return MagicMock(spec=app.MessagePublisher)
+
     def test_sends_health_messages(self):
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(3)
 
         with patch("app.send_to_topic") as mock_send:
-            app.health_loop(client, self._BASE_CFG, cb, stop)
+            app.health_loop(pub, self._BASE_CFG, cb, stop)
 
         assert mock_send.call_count == 3
 
     def test_continues_on_send_failure(self):
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(3)
 
         with patch("app.send_to_topic", side_effect=RuntimeError("bus down")) as mock_send:
             # Should not raise
-            app.health_loop(client, self._BASE_CFG, cb, stop)
+            app.health_loop(pub, self._BASE_CFG, cb, stop)
 
         assert mock_send.call_count == 3
 
     def test_health_message_uses_correct_topic(self):
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(1)
 
         with patch("app.send_to_topic") as mock_send:
-            app.health_loop(client, self._BASE_CFG, cb, stop)
+            app.health_loop(pub, self._BASE_CFG, cb, stop)
 
         _, topic_arg, _, _ = mock_send.call_args[0]
         assert topic_arg == "sensor-health"
 
     def test_health_message_contains_sensor_name(self):
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = self._stop_after(1)
 
         with patch("app.send_to_topic") as mock_send:
-            app.health_loop(client, self._BASE_CFG, cb, stop)
+            app.health_loop(pub, self._BASE_CFG, cb, stop)
 
         _, _, payload, _ = mock_send.call_args[0]
         assert payload["sensor_name"] == "test-sensor"
 
     def test_stops_when_event_set(self):
-        client = MagicMock()
+        pub = self._make_publisher()
         cb = app.CircuitBreaker()
         stop = threading.Event()
         stop.set()  # Already set → loop should not execute
 
         with patch("app.send_to_topic") as mock_send:
-            app.health_loop(client, self._BASE_CFG, cb, stop)
+            app.health_loop(pub, self._BASE_CFG, cb, stop)
 
         mock_send.assert_not_called()
+
+
+# ── ServiceBusPublisher ────────────────────────────────────────────────────────
+
+
+class TestServiceBusPublisher:
+    def _make_sb_client(self):
+        sender = MagicMock()
+        sender.__enter__ = MagicMock(return_value=sender)
+        sender.__exit__ = MagicMock(return_value=False)
+        sb_client = MagicMock()
+        sb_client.get_topic_sender.return_value = sender
+        return sb_client, sender
+
+    def test_publish_calls_send_messages(self):
+        sb_client, sender = self._make_sb_client()
+        with patch("app.ServiceBusClient", return_value=sb_client):
+            with patch("app.DefaultAzureCredential"):
+                pub = app.ServiceBusPublisher("test.servicebus.windows.net")
+                pub.publish("my-topic", '{"key": "val"}')
+        sender.send_messages.assert_called_once()
+
+    def test_publish_uses_correct_topic(self):
+        sb_client, _ = self._make_sb_client()
+        with patch("app.ServiceBusClient", return_value=sb_client):
+            with patch("app.DefaultAzureCredential"):
+                pub = app.ServiceBusPublisher("test.servicebus.windows.net")
+                pub.publish("target-topic", "{}")
+        sb_client.get_topic_sender.assert_called_once_with(topic_name="target-topic")
+
+    def test_publish_sends_correct_body(self):
+        sb_client, sender = self._make_sb_client()
+        with patch("app.ServiceBusClient", return_value=sb_client):
+            with patch("app.DefaultAzureCredential"):
+                with patch("app.ServiceBusMessage") as mock_msg_cls:
+                    pub = app.ServiceBusPublisher("ns")
+                    pub.publish("topic", '{"x": 1}')
+        args, kwargs = mock_msg_cls.call_args
+        assert args[0] == '{"x": 1}'
+        assert kwargs.get("content_type") == "application/json"
+
+    def test_close_closes_client(self):
+        sb_client, _ = self._make_sb_client()
+        with patch("app.ServiceBusClient", return_value=sb_client):
+            with patch("app.DefaultAzureCredential"):
+                pub = app.ServiceBusPublisher("ns")
+                pub.close()
+        sb_client.close.assert_called_once()
+
+
+# ── MQTTPublisher ──────────────────────────────────────────────────────────────
+
+
+class TestMQTTPublisher:
+    _BASE_MQTT_CFG = {
+        "sensor_name": "test-sensor",
+        "mqtt_broker_host": "broker.example.com",
+        "mqtt_broker_port": 1883,
+    }
+
+    def _make_mqtt_client(self):
+        mock_client = MagicMock()
+        result = MagicMock()
+        result.wait_for_publish = MagicMock()
+        mock_client.publish.return_value = result
+        return mock_client
+
+    def test_publish_calls_client_publish(self):
+        mock_client = self._make_mqtt_client()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.MQTTPublisher(self._BASE_MQTT_CFG)
+            pub.publish("sensor/data", '{"v": 1}')
+        mock_client.publish.assert_called_once()
+
+    def test_publish_uses_correct_topic(self):
+        mock_client = self._make_mqtt_client()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.MQTTPublisher(self._BASE_MQTT_CFG)
+            pub.publish("sensor/data", '{"v": 1}')
+        topic_arg = mock_client.publish.call_args[0][0]
+        assert topic_arg == "sensor/data"
+
+    def test_publish_uses_correct_body(self):
+        mock_client = self._make_mqtt_client()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.MQTTPublisher(self._BASE_MQTT_CFG)
+            pub.publish("topic", '{"x": 42}')
+        body_arg = mock_client.publish.call_args[0][1]
+        assert body_arg == '{"x": 42}'
+
+    def test_publish_waits_for_publish(self):
+        mock_client = self._make_mqtt_client()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.MQTTPublisher(self._BASE_MQTT_CFG)
+            pub.publish("topic", "{}")
+        mock_client.publish.return_value.wait_for_publish.assert_called_once()
+
+    def test_close_disconnects(self):
+        mock_client = self._make_mqtt_client()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.MQTTPublisher(self._BASE_MQTT_CFG)
+            pub.close()
+        mock_client.loop_stop.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+
+    def test_username_password_set_when_provided(self):
+        mock_client = self._make_mqtt_client()
+        cfg = {**self._BASE_MQTT_CFG, "mqtt_username": "user", "mqtt_password": "pass"}
+        with patch("app.mqtt.Client", return_value=mock_client):
+            app.MQTTPublisher(cfg)
+        mock_client.username_pw_set.assert_called_once_with("user", "pass")
+
+    def test_username_password_not_set_when_absent(self):
+        mock_client = self._make_mqtt_client()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            app.MQTTPublisher(self._BASE_MQTT_CFG)
+        mock_client.username_pw_set.assert_not_called()
+
+    def test_tls_set_when_enabled(self):
+        mock_client = self._make_mqtt_client()
+        cfg = {**self._BASE_MQTT_CFG, "mqtt_use_tls": True}
+        with patch("app.mqtt.Client", return_value=mock_client):
+            app.MQTTPublisher(cfg)
+        mock_client.tls_set.assert_called_once()
+
+    def test_default_qos_is_1(self):
+        mock_client = self._make_mqtt_client()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.MQTTPublisher(self._BASE_MQTT_CFG)
+            pub.publish("topic", "{}")
+        qos_arg = mock_client.publish.call_args[1]["qos"]
+        assert qos_arg == 1
+
+    def test_custom_qos_is_used(self):
+        mock_client = self._make_mqtt_client()
+        cfg = {**self._BASE_MQTT_CFG, "mqtt_qos": 0}
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.MQTTPublisher(cfg)
+            pub.publish("topic", "{}")
+        qos_arg = mock_client.publish.call_args[1]["qos"]
+        assert qos_arg == 0
+
+
+# ── create_publisher ───────────────────────────────────────────────────────────
+
+
+class TestCreatePublisher:
+    def test_servicebus_type_returns_servicebus_publisher(self):
+        cfg = {
+            "message_bus_type": "servicebus",
+            "sensor_name": "s1",
+            "service_bus_namespace": "test.servicebus.windows.net",
+        }
+        with patch("app.ServiceBusClient"):
+            with patch("app.DefaultAzureCredential"):
+                pub = app.create_publisher(cfg)
+        assert isinstance(pub, app.ServiceBusPublisher)
+
+    def test_mqtt_type_returns_mqtt_publisher(self):
+        cfg = {
+            "message_bus_type": "mqtt",
+            "sensor_name": "s1",
+            "mqtt_broker_host": "broker.example.com",
+            "mqtt_broker_port": 1883,
+        }
+        mock_client = MagicMock()
+        mock_client.publish.return_value = MagicMock()
+        with patch("app.mqtt.Client", return_value=mock_client):
+            pub = app.create_publisher(cfg)
+        assert isinstance(pub, app.MQTTPublisher)
+
+    def test_unknown_type_raises_value_error(self):
+        cfg = {"message_bus_type": "kafka", "sensor_name": "s1"}
+        with pytest.raises(ValueError, match="kafka"):
+            app.create_publisher(cfg)
+
+    def test_bus_type_is_case_insensitive(self):
+        cfg = {
+            "message_bus_type": "ServiceBus",
+            "sensor_name": "s1",
+            "service_bus_namespace": "test.servicebus.windows.net",
+        }
+        with patch("app.ServiceBusClient"):
+            with patch("app.DefaultAzureCredential"):
+                pub = app.create_publisher(cfg)
+        assert isinstance(pub, app.ServiceBusPublisher)
