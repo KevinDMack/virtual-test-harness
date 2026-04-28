@@ -1,4 +1,38 @@
 {{- if not .Values.useExternalVolumes }}
+{{- if .Values.sensors }}
+{{- range .Values.sensors }}
+{{- $sensor := . }}
+{{- $ctx := $ }}
+{{- $sensorFullname := printf "%s-%s" (include "virtual-test-harness.fullname" $ctx) $sensor.name }}
+---
+# ConfigMap: sensor config for {{ $sensor.name }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $sensorFullname }}-config
+  labels:
+    {{- include "virtual-test-harness.labels" $ctx | nindent 4 }}
+    app.kubernetes.io/component: {{ $sensor.name }}
+data:
+  config.json: |
+    {{ $sensor.config | toJson }}
+---
+# ConfigMap: inbox messages for {{ $sensor.name }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $sensorFullname }}-inbox
+  labels:
+    {{- include "virtual-test-harness.labels" $ctx | nindent 4 }}
+    app.kubernetes.io/component: {{ $sensor.name }}
+data:
+  {{- $inboxData := ($sensor.inbox | default $ctx.Values.inbox) }}
+  {{- range $filename, $content := $inboxData }}
+  {{ $filename }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- else }}
 ---
 # ConfigMap: sensor config
 apiVersion: v1
@@ -23,4 +57,5 @@ data:
   {{ $filename }}: |
     {{- $content | nindent 4 }}
   {{- end }}
+{{- end }}
 {{- end }}

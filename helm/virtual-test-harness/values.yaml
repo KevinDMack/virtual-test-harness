@@ -134,6 +134,52 @@ tolerations: []
 
 affinity: {}
 
+# -- Multiple sensor instances.
+# When this list is populated, one Deployment and ConfigMap pair is created
+# per entry, allowing multiple distinct sensors to be simulated from a single
+# Helm release.  When the list is empty (default), a single sensor is deployed
+# using the top-level `config` and `inbox` values (backward-compatible).
+#
+# Each entry supports the following keys:
+#   name        (required) – used as a suffix for Kubernetes resource names and
+#                            as the app.kubernetes.io/component label.
+#   config      (required) – sensor configuration; same keys as top-level config.
+#   inbox       (optional) – inbox messages; same structure as top-level inbox.
+#                            Defaults to the top-level inbox when omitted.
+#   replicaCount (optional) – overrides the top-level replicaCount for this sensor.
+#   resources   (optional) – overrides the top-level resources for this sensor.
+#   pvcNames    (optional) – per-sensor PVC names when useExternalVolumes is true:
+#     pvcNames:
+#       config: ""
+#       inbox:  ""
+#
+# Example:
+# sensors:
+#   - name: alpha
+#     config:
+#       sensor_name: "sensor-alpha-01"
+#       message_interval: 5
+#       message_topic: "sensor-data"
+#       health_interval: 30
+#       health_topic: "sensor-health"
+#       run_continuous: true
+#       message_bus_type: "servicebus"
+#       service_bus_namespace: "your-namespace.servicebus.windows.net"
+#     inbox:
+#       messages.json: |
+#         [{"reading_type": "temperature", "value": 72.4, "unit": "fahrenheit"}]
+#   - name: beta
+#     config:
+#       sensor_name: "sensor-beta-01"
+#       message_interval: 10
+#       message_topic: "sensor-data"
+#       health_interval: 30
+#       health_topic: "sensor-health"
+#       run_continuous: true
+#       message_bus_type: "servicebus"
+#       service_bus_namespace: "your-namespace.servicebus.windows.net"
+sensors: []
+
 # -- Log volume configuration.
 # Telemetry logs are written to /logs/app.log inside the container and picked
 # up by Arc and monitoring services (e.g. Azure Monitor Agent, Fluent Bit).
