@@ -148,9 +148,10 @@ affinity: {}
 #                            Defaults to the top-level inbox when omitted.
 #   replicaCount (optional) – overrides the top-level replicaCount for this sensor.
 #   resources   (optional) – overrides the top-level resources for this sensor.
-#   pvcNames    (optional) – per-sensor PVC names when useExternalVolumes is true.
-#     config:  ""
-#     inbox:   ""
+#   pvcNames    (optional) – per-sensor PVC names when useExternalVolumes is true:
+#     pvcNames:
+#       config: ""
+#       inbox:  ""
 #
 # Example:
 # sensors:
