@@ -1,5 +1,5 @@
 apiVersion: v2
-name: sensor-simulator
+name: virtual-test-harness
 description: >
   Helm chart for the tactical-edge sensor simulator.  Deploys one or more
   instances of the sensor simulator, each with its own config and inbox

@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "sensor-simulator.fullname" . }}
+  name: {{ include "virtual-test-harness.fullname" . }}
   labels:
-    {{- include "sensor-simulator.labels" . | nindent 4 }}
+    {{- include "virtual-test-harness.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "sensor-simulator.selectorLabels" . | nindent 6 }}
+      {{- include "virtual-test-harness.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -16,13 +16,13 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "sensor-simulator.selectorLabels" . | nindent 8 }}
+        {{- include "virtual-test-harness.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "sensor-simulator.serviceAccountName" . }}
+      serviceAccountName: {{ include "virtual-test-harness.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -64,15 +64,15 @@ spec:
         {{- else }}
         - name: config-volume
           configMap:
-            name: {{ include "sensor-simulator.fullname" . }}-config
+            name: {{ include "virtual-test-harness.fullname" . }}-config
         - name: inbox-volume
           configMap:
-            name: {{ include "sensor-simulator.fullname" . }}-inbox
+            name: {{ include "virtual-test-harness.fullname" . }}-inbox
         {{- end }}
         - name: logs-volume
           {{- if .Values.logs.persistence.enabled }}
           persistentVolumeClaim:
-            claimName: {{ .Values.logs.persistence.existingClaim | default (printf "%s-logs" (include "sensor-simulator.fullname" .)) }}
+            claimName: {{ .Values.logs.persistence.existingClaim | default (printf "%s-logs" (include "virtual-test-harness.fullname" .)) }}
           {{- else }}
           emptyDir: {}
           {{- end }}
