@@ -231,7 +231,88 @@ helm install sensor-alpha \
   --set config.service_bus_namespace=myns.servicebus.windows.net
 ```
 
-### Azure Service Bus – multiple instances
+### Azure Service Bus – multiple sensors in a single release
+
+Use the `sensors` list to deploy multiple distinct sensor instances from a single `helm install`.  Each entry creates its own Deployment and ConfigMap pair; they share the same image, service account, and resource defaults (all of which can be overridden per-entry).
+
+```bash
+helm install sensors ./helm/virtual-test-harness \
+  --set image.repository=myregistry.azurecr.io/virtual-test-harness \
+  --set config.message_bus_type=servicebus \
+  --set config.service_bus_namespace=myns.servicebus.windows.net \
+  --set sensors[0].name=alpha \
+  --set sensors[0].config.sensor_name=sensor-alpha-01 \
+  --set sensors[0].config.message_bus_type=servicebus \
+  --set sensors[0].config.service_bus_namespace=myns.servicebus.windows.net \
+  --set sensors[0].config.message_topic=sensor-data-alpha \
+  --set sensors[0].config.health_topic=sensor-health-alpha \
+  --set sensors[0].config.message_interval=5 \
+  --set sensors[0].config.health_interval=30 \
+  --set sensors[0].config.run_continuous=true \
+  --set sensors[1].name=beta \
+  --set sensors[1].config.sensor_name=sensor-beta-01 \
+  --set sensors[1].config.message_bus_type=servicebus \
+  --set sensors[1].config.service_bus_namespace=myns.servicebus.windows.net \
+  --set sensors[1].config.message_topic=sensor-data-beta \
+  --set sensors[1].config.health_topic=sensor-health-beta \
+  --set sensors[1].config.message_interval=10 \
+  --set sensors[1].config.health_interval=30 \
+  --set sensors[1].config.run_continuous=true
+```
+
+Or equivalently with a values file:
+
+```yaml
+# sensors-values.yaml
+image:
+  repository: myregistry.azurecr.io/virtual-test-harness
+
+sensors:
+  - name: alpha
+    config:
+      sensor_name: "sensor-alpha-01"
+      message_interval: 5
+      message_topic: "sensor-data-alpha"
+      health_interval: 30
+      health_topic: "sensor-health-alpha"
+      run_continuous: true
+      message_bus_type: "servicebus"
+      service_bus_namespace: "myns.servicebus.windows.net"
+    inbox:
+      messages.json: |
+        [{"reading_type": "temperature", "value": 72.4, "unit": "fahrenheit"}]
+  - name: beta
+    config:
+      sensor_name: "sensor-beta-01"
+      message_interval: 10
+      message_topic: "sensor-data-beta"
+      health_interval: 30
+      health_topic: "sensor-health-beta"
+      run_continuous: true
+      message_bus_type: "servicebus"
+      service_bus_namespace: "myns.servicebus.windows.net"
+    inbox:
+      messages.json: |
+        [{"reading_type": "humidity", "value": 58.1, "unit": "percent"}]
+```
+
+```bash
+helm install sensors ./helm/virtual-test-harness -f sensors-values.yaml
+```
+
+Each entry in `sensors` supports the following optional overrides:
+
+| Key | Default | Description |
+|---|---|---|
+| `replicaCount` | top-level `replicaCount` | Number of pod replicas for this sensor |
+| `resources` | top-level `resources` | CPU/memory requests and limits |
+| `inbox` | top-level `inbox` | Inbox messages; falls back to the top-level `inbox` when omitted |
+| `pvcNames.config` | top-level `pvcNames.config` | Config PVC name (only used when `useExternalVolumes: true`) |
+| `pvcNames.inbox` | top-level `pvcNames.inbox` | Inbox PVC name (only used when `useExternalVolumes: true`) |
+
+> **Note:** When `sensors` is populated the top-level `config` block is ignored for Deployments (it is only used as documentation/reference for defaults).  All sensor-specific configuration must be provided inside each `sensors` entry.
+
+### Azure Service Bus – multiple instances (separate releases)
 
 ```bash
 # Instance 1
