@@ -457,7 +457,7 @@ class TestSensorLoop:
         stop = self._stop_after(10)
         sent_contents = []
 
-        def capture_send(publisher, topic, payload, circuit_breaker):
+        def capture_send(publisher, topic, payload, circuit_breaker, **kwargs):
             sent_contents.append(payload["content"])
 
         def fake_build(name, content):

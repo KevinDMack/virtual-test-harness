@@ -6,5 +6,9 @@
   "health_topic": "sensor-health",
   "run_continuous": true,
   "message_bus_type": "servicebus",
-  "service_bus_namespace": "your-namespace.servicebus.windows.net"
+  "service_bus_namespace": "your-namespace.servicebus.windows.net",
+  "telemetry_type": "console",
+  "applicationinsights_connection_string": "",
+  "otel_exporter_endpoint": "",
+  "otel_service_name": ""
 }
