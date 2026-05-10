@@ -41,6 +41,9 @@ from azure.identity import DefaultAzureCredential
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 import paho.mqtt.client as mqtt
 
+from telemetry import TelemetryService, create_telemetry_service
+from telemetry.console import ConsoleTelemetryService
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(os.getenv("APP_BASE_DIR", "/app"))
@@ -95,11 +98,12 @@ class CircuitBreaker:
     HALF_OPEN = "HALF-OPEN"
     OPEN = "OPEN"
 
-    def __init__(self) -> None:
+    def __init__(self, telemetry: TelemetryService | None = None) -> None:
         self._lock = threading.Lock()
         # Sliding window: timestamps (float) of recent errors.
         self._error_times: deque[float] = deque()
         self.last_error_message: str = ""
+        self._telemetry: TelemetryService = telemetry or ConsoleTelemetryService()
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -121,7 +125,11 @@ class CircuitBreaker:
             self._error_times.append(time.monotonic())
             self.last_error_message = message
             count = self._recent_error_count()
-        log.warning("Circuit breaker error recorded (%d in window): %s", count, message)
+        self._telemetry.log(
+            "warning",
+            "Circuit breaker error recorded (%d in window): %s" % (count, message),
+        )
+        self._telemetry.track_metric("circuit_breaker.error_count", count)
 
     def record_success(self) -> None:
         """A successful operation – no state change, but logged for clarity."""
@@ -174,19 +182,20 @@ class MessagePublisher(Protocol):
 class ServiceBusPublisher:
     """Publish JSON messages to Azure Service Bus topics."""
 
-    def __init__(self, namespace: str) -> None:
+    def __init__(self, namespace: str, telemetry: TelemetryService | None = None) -> None:
         credential = DefaultAzureCredential()
         self._client = ServiceBusClient(
             fully_qualified_namespace=namespace,
             credential=credential,
             logging_enable=False,
         )
-        log.info("ServiceBusPublisher initialised for namespace: %s", namespace)
+        self._telemetry: TelemetryService = telemetry or ConsoleTelemetryService()
+        self._telemetry.log("info", "ServiceBusPublisher initialised for namespace: %s" % namespace)
 
     def publish(self, topic: str, body: str) -> None:
         with self._client.get_topic_sender(topic_name=topic) as sender:
             sender.send_messages(ServiceBusMessage(body, content_type="application/json"))
-        log.debug("ServiceBus: published to topic '%s'", topic)
+        self._telemetry.log("debug", "ServiceBus: published to topic '%s'" % topic)
 
     def close(self) -> None:
         self._client.close()
@@ -198,9 +207,10 @@ class ServiceBusPublisher:
 class MQTTPublisher:
     """Publish JSON messages to an MQTT broker using paho-mqtt."""
 
-    def __init__(self, cfg: dict) -> None:
+    def __init__(self, cfg: dict, telemetry: TelemetryService | None = None) -> None:
         client_id: str = cfg.get("mqtt_client_id") or cfg.get("sensor_name", "")
         self._qos: int = int(cfg.get("mqtt_qos", 1))
+        self._telemetry: TelemetryService = telemetry or ConsoleTelemetryService()
 
         self._client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
@@ -219,12 +229,12 @@ class MQTTPublisher:
         port: int = int(cfg["mqtt_broker_port"])
         self._client.connect(host, port)
         self._client.loop_start()
-        log.info("MQTTPublisher connected to %s:%d", host, port)
+        self._telemetry.log("info", "MQTTPublisher connected to %s:%d" % (host, port))
 
     def publish(self, topic: str, body: str) -> None:
         result = self._client.publish(topic, body, qos=self._qos)
         result.wait_for_publish()
-        log.debug("MQTT: published to topic '%s'", topic)
+        self._telemetry.log("debug", "MQTT: published to topic '%s'" % topic)
 
     def close(self) -> None:
         self._client.loop_stop()
@@ -234,13 +244,13 @@ class MQTTPublisher:
 # ── Publisher factory ──────────────────────────────────────────────────────────
 
 
-def create_publisher(cfg: dict) -> MessagePublisher:
+def create_publisher(cfg: dict, telemetry: TelemetryService | None = None) -> MessagePublisher:
     """Instantiate the correct :class:`MessagePublisher` from *cfg*."""
     bus_type: str = cfg.get("message_bus_type", "servicebus").lower()
     if bus_type == "servicebus":
-        return ServiceBusPublisher(cfg["service_bus_namespace"])
+        return ServiceBusPublisher(cfg["service_bus_namespace"], telemetry=telemetry)
     if bus_type == "mqtt":
-        return MQTTPublisher(cfg)
+        return MQTTPublisher(cfg, telemetry=telemetry)
     raise ValueError(f"Unknown message_bus_type: '{bus_type}'. Must be 'servicebus' or 'mqtt'.")
 
 
@@ -251,7 +261,6 @@ def load_config(path: Path) -> dict[str, Any]:
     log.info("Loading config from %s", path)
     with path.open() as fh:
         cfg = json.load(fh)
-
     # Keys required regardless of bus type.
     always_required = [
         "sensor_name",
@@ -329,16 +338,20 @@ def send_to_topic(
     topic: str,
     payload: dict,
     cb: CircuitBreaker,
+    telemetry: TelemetryService | None = None,
 ) -> None:
     """Publish a single JSON message to a topic via the active publisher."""
+    _telemetry: TelemetryService = telemetry or ConsoleTelemetryService()
     body = json.dumps(payload)
     try:
         publisher.publish(topic, body)
         cb.record_success()
-        log.debug("Published to topic '%s': %s", topic, body)
+        _telemetry.log("debug", "Published to topic '%s': %s" % (topic, body))
+        _telemetry.track_event("MessagePublished", {"topic": topic})
     except Exception as exc:  # noqa: BLE001
         cb.record_error(str(exc))
-        log.error("Failed to publish to topic '%s': %s", topic, exc)
+        _telemetry.log("error", "Failed to publish to topic '%s': %s" % (topic, exc))
+        _telemetry.track_exception(exc, {"topic": topic})
         raise
 
 
@@ -350,21 +363,29 @@ def health_loop(
     cfg: dict,
     cb: CircuitBreaker,
     stop_event: threading.Event,
+    telemetry: TelemetryService | None = None,
 ) -> None:
+    _telemetry: TelemetryService = telemetry or ConsoleTelemetryService()
     sensor_name: str = cfg["sensor_name"]
     health_topic: str = cfg["health_topic"]
     interval: float = float(cfg["health_interval"])
 
     while not stop_event.is_set():
         msg = build_health_message(sensor_name, cb)
-        log.info(
-            "Health [%s] status=%s errors=%s",
-            sensor_name,
-            msg["status"],
-            repr(msg["last_error_message"]) if msg["last_error_message"] else "(none)",
+        _telemetry.log(
+            "info",
+            "Health [%s] status=%s errors=%s" % (
+                sensor_name,
+                msg["status"],
+                repr(msg["last_error_message"]) if msg["last_error_message"] else "(none)",
+            ),
+        )
+        _telemetry.track_event(
+            "HealthPublished",
+            {"sensor_name": sensor_name, "status": msg["status"]},
         )
         try:
-            send_to_topic(publisher, health_topic, msg, cb)
+            send_to_topic(publisher, health_topic, msg, cb, telemetry=_telemetry)
         except Exception:  # noqa: BLE001
             # Error already recorded by send_to_topic; continue publishing health.
             pass
@@ -380,7 +401,9 @@ def sensor_loop(
     payloads: list[dict],
     cb: CircuitBreaker,
     stop_event: threading.Event,
+    telemetry: TelemetryService | None = None,
 ) -> None:
+    _telemetry: TelemetryService = telemetry or ConsoleTelemetryService()
     sensor_name: str = cfg["sensor_name"]
     message_topic: str = cfg["message_topic"]
     interval: float = float(cfg["message_interval"])
@@ -392,15 +415,16 @@ def sensor_loop(
     while not stop_event.is_set():
         if index >= total:
             if run_continuous:
-                log.info("Inbox exhausted – restarting from the beginning.")
+                _telemetry.log("info", "Inbox exhausted – restarting from the beginning.")
                 index = 0
             else:
-                log.info("Inbox exhausted and run_continuous=false – stopping sensor loop.")
+                _telemetry.log("info", "Inbox exhausted and run_continuous=false – stopping sensor loop.")
                 break
 
         if cb.is_open:
-            log.warning(
-                "Circuit breaker is OPEN – skipping message send. Waiting %s s.", interval
+            _telemetry.log(
+                "warning",
+                "Circuit breaker is OPEN – skipping message send. Waiting %s s." % interval,
             )
             stop_event.wait(interval)
             continue
@@ -409,14 +433,16 @@ def sensor_loop(
         index += 1
 
         msg = build_sensor_message(sensor_name, content)
-        log.info(
-            "Sending sensor message %d/%d correlation_id=%s",
-            index,
-            total,
-            msg["correlation_id"],
+        _telemetry.log(
+            "info",
+            "Sending sensor message %d/%d correlation_id=%s" % (index, total, msg["correlation_id"]),
+        )
+        _telemetry.track_event(
+            "SensorMessageSent",
+            {"sensor_name": sensor_name, "index": index, "correlation_id": msg["correlation_id"]},
         )
         try:
-            send_to_topic(publisher, message_topic, msg, cb)
+            send_to_topic(publisher, message_topic, msg, cb, telemetry=_telemetry)
         except Exception:  # noqa: BLE001
             # Error already recorded; back off slightly but continue.
             pass
@@ -431,35 +457,38 @@ def main() -> None:
     cfg = load_config(CONFIG_PATH)
     payloads = load_inbox(INBOX_DIR)
 
+    telemetry = create_telemetry_service(cfg)
+
     bus_type: str = cfg.get("message_bus_type", "servicebus")
-    log.info(
-        "Starting sensor simulator: sensor=%s message_bus_type=%s",
-        cfg["sensor_name"],
-        bus_type,
+    telemetry.log(
+        "info",
+        "Starting sensor simulator: sensor=%s message_bus_type=%s" % (cfg["sensor_name"], bus_type),
     )
 
-    publisher = create_publisher(cfg)
+    publisher = create_publisher(cfg, telemetry=telemetry)
 
-    cb = CircuitBreaker()
+    cb = CircuitBreaker(telemetry=telemetry)
     stop_event = threading.Event()
 
     health_thread = threading.Thread(
         target=health_loop,
         args=(publisher, cfg, cb, stop_event),
+        kwargs={"telemetry": telemetry},
         name="health-publisher",
         daemon=True,
     )
     health_thread.start()
 
     try:
-        sensor_loop(publisher, cfg, payloads, cb, stop_event)
+        sensor_loop(publisher, cfg, payloads, cb, stop_event, telemetry=telemetry)
     except KeyboardInterrupt:
-        log.info("Interrupted – shutting down.")
+        telemetry.log("info", "Interrupted – shutting down.")
     finally:
         stop_event.set()
         health_thread.join(timeout=5)
         publisher.close()
-        log.info("Shutdown complete.")
+        telemetry.flush()
+        telemetry.log("info", "Shutdown complete.")
 
 
 if __name__ == "__main__":
