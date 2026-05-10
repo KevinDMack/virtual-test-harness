@@ -261,6 +261,7 @@ def load_config(path: Path) -> dict[str, Any]:
     log.info("Loading config from %s", path)
     with path.open() as fh:
         cfg = json.load(fh)
+
     # Keys required regardless of bus type.
     always_required = [
         "sensor_name",

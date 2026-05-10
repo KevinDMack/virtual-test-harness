@@ -84,21 +84,6 @@ class OpenTelemetryService:
             endpoint,
         )
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
-
-    def _severity_number(self, level: str) -> int:
-        """Map a level string to an OTel SeverityNumber integer."""
-        from opentelemetry.sdk._logs.export import SeverityNumber  # type: ignore[attr-defined]
-
-        mapping = {
-            "debug": SeverityNumber.DEBUG,
-            "info": SeverityNumber.INFO,
-            "warning": SeverityNumber.WARN,
-            "error": SeverityNumber.ERROR,
-            "critical": SeverityNumber.FATAL,
-        }
-        return mapping.get(level.lower(), SeverityNumber.INFO)
-
     # ── Public interface ──────────────────────────────────────────────────────
 
     def log(self, level: str, message: str, **kwargs: Any) -> None:
@@ -135,7 +120,7 @@ class OpenTelemetryService:
             "error": logging.ERROR,
             "critical": logging.CRITICAL,
         }.get(level.lower(), logging.INFO)
-        log.log(_python_level, message, **{} if not kwargs else {})
+        log.log(_python_level, message)
 
     def track_event(self, name: str, properties: dict[str, Any] | None = None) -> None:
         """Record a named event as an OTel span with the given properties."""
